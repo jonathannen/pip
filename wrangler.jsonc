@@ -35,8 +35,8 @@
 
   "vars": {
     // Zero Trust: the team domain and the Access app's AUD tag (see README).
-    "ACCESS_TEAM_DOMAIN": "https://REPLACE.cloudflareaccess.com",
-    "ACCESS_AUD": "REPLACE_WITH_ACCESS_APP_AUD",
+    "ACCESS_TEAM_DOMAIN": "https://royal-rain-fbd0.cloudflareaccess.com",
+    "ACCESS_AUD": "9b8badaa9ce8e702278f82fad56bee92b9eab6781dd8e47f09e021d1330e8255",
     // The Slack member ID the bot answers; everyone else is ignored.
     "SLACK_OWNER_USER_ID": "UH0UN1VT4",
     // The Slack workspace the code channel tool creates channels in (src/lib/code-channel.ts).
