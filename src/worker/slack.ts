@@ -15,15 +15,26 @@ export function slack(env: Env) {
         }
         await context.say({ text: `:wave: <@${payload.user}>`, thread_ts: payload.ts });
       })
-      // A DM: `note <text>` keeps a note, `notes` lists the last five, anything else is echoed.
+      // A DM: for the owner, `note <text>` keeps a note, `notes` lists the last five, anything else
+      // is echoed. Anyone else only gets the echo.
       .anyMessage(async ({ context, payload }) => {
         if (payload.channel_type !== 'im' || payload.subtype) {
           return;
         }
-        if (payload.user !== env.SLACK_OWNER_USER_ID) {
-          return;
+        const text = payload.text ?? '';
+        const owner = payload.user === env.SLACK_OWNER_USER_ID;
+        if (!owner) {
+          console.warn('pip: DM from a non-owner', payload.user);
         }
-        await context.say({ text: await reply(payload.text ?? '', `slack:${payload.user}`) });
+        try {
+          await context.say({
+            text: owner ? await reply(text, `slack:${payload.user}`) : echo(text),
+          });
+        } catch (error) {
+          // chat.postMessage failed (bad SLACK_BOT_TOKEN, missing chat:write, ...).
+          console.error('pip: reply failed', error);
+          throw error;
+        }
       })
       // `/pip <text>`, the same as a DM, answered only to you.
       .command('/pip', async ({ payload }) => {
@@ -63,5 +74,9 @@ export async function reply(text: string, from: string): Promise<string> {
     const note = await addNote(body, from);
     return `Noted #${note.id}.`;
   }
-  return `You said: ${trimmed}`;
+  return echo(trimmed);
+}
+
+export function echo(text: string): string {
+  return `You said: ${text.trim()}`;
 }
