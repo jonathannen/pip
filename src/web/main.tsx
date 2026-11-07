@@ -17,6 +17,13 @@ if (!root) {
   throw new Error('#root missing');
 }
 
+// The service worker (public/sw.js) caches the hashed build assets. Not in dev, where they change.
+if (import.meta.env.PROD && 'serviceWorker' in navigator) {
+  navigator.serviceWorker.register('/sw.js').catch((error) => {
+    console.warn('pip: service worker not registered', error);
+  });
+}
+
 createRoot(root).render(
   <StrictMode>
     <RouterProvider router={router} />
