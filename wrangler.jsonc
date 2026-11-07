@@ -25,7 +25,7 @@
     {
       "binding": "DB",
       "database_name": "pip",
-      "database_id": "REPLACE_WITH_wrangler_d1_create_pip",
+      "database_id": "76f7a442-5645-41e0-a4cd-b7655322d724",
       "migrations_dir": "migrations"
     }
   ],
