@@ -1,0 +1,122 @@
+.lede {
+  color: var(--text-muted);
+  margin-bottom: 1.5rem;
+  max-width: 36rem;
+}
+
+.off {
+  background: color-mix(in srgb, var(--warning) 12%, transparent);
+  border: 1px solid color-mix(in srgb, var(--warning) 40%, transparent);
+  border-radius: var(--radius);
+  margin-bottom: 1.5rem;
+  padding: 0.625rem 0.875rem;
+
+  & code {
+    font-family: var(--font-mono);
+    font-size: 0.8125rem;
+  }
+}
+
+.form {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  margin-bottom: 1.5rem;
+}
+
+.prompt {
+  background: var(--surface);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius);
+  color: var(--text);
+  font: inherit;
+  /* Under 16px, iOS zooms in when the field is focused. */
+  font-size: 16px;
+  line-height: 1.5;
+  padding: 0.625rem 0.75rem;
+  resize: vertical;
+
+  &:disabled {
+    opacity: 0.5;
+  }
+}
+
+.options {
+  align-items: center;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem 1.25rem;
+}
+
+.option {
+  align-items: center;
+  color: var(--text-muted);
+  display: inline-flex;
+  gap: 0.375rem;
+
+  & code {
+    color: var(--text);
+    font-family: var(--font-mono);
+    font-size: 0.8125rem;
+  }
+
+  & input {
+    accent-color: var(--accent);
+    margin: 0;
+  }
+}
+
+.select {
+  background: var(--surface);
+  border: 1px solid var(--border-strong);
+  border-radius: 0.375rem;
+  color: var(--text);
+  font: inherit;
+  height: 2rem;
+  padding: 0 0.5rem;
+}
+
+.launch {
+  margin-left: auto;
+}
+
+.hint {
+  color: var(--text-subtle);
+  font-size: 0.75rem;
+}
+
+.error {
+  color: var(--danger);
+  margin-bottom: 1rem;
+}
+
+.list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.item {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  display: grid;
+  gap: 0.125rem;
+  padding: 0.625rem 0.875rem;
+}
+
+.body {
+  white-space: pre-wrap;
+}
+
+.meta {
+  color: var(--text-subtle);
+  font-size: 0.75rem;
+
+  & a {
+    color: var(--accent);
+  }
+}

@@ -4,14 +4,14 @@ Jon's personal bot: a website, an MCP server and a Slack bot on one Cloudflare W
 
 | Path | What | Auth |
 | --- | --- | --- |
-| `/` | React SPA (`src/web/`) | Cloudflare Access |
+| `/`, `/code`, `/mcp`, `/about` | React SPA (`src/web/`): notes, a prompt that launches a code channel, how to connect an MCP client | Cloudflare Access |
 | `/api/*` | JSON API for the SPA (`src/worker/index.ts`) | Cloudflare Access |
 | `/mcp/<name>` | MCP servers (`src/worker/mcp/`) | Cloudflare Access (user or service token) |
-| `/slack/events` | Slack Events API, slash command (`src/worker/slack.ts`) | Slack request signature |
+| `/slack/events` | Slack Events API, slash commands `/pip` and `/cc` (`src/worker/slack.ts`) | Slack request signature |
 
 The Worker also verifies the `Cf-Access-Jwt-Assertion` header on `/api` and `/mcp`, and is only reachable on its custom domain (`workers_dev` and `preview_urls` are off).
 
-What it does so far is deliberately small: **notes**, short things kept in D1 from the website, the `notes_*` MCP tools or a Slack DM (`note <text>`, `notes`). The `create_code_channel` MCP tool from before is kept (`src/lib/code-channel.ts`). Everything else is the shape to hang things off: Access, D1 with migrations, a daily cron, the MCP handler, the Slack app, tests.
+What it does so far is deliberately small: **notes**, short things kept in D1 from the website, the `notes_*` MCP tools or a Slack DM (`note <text>`, `notes`). **Code channels** (`src/lib/code-channel.ts`) start a Slack code channel on a prompt, from the `/code` page (`POST /api/code-channel`), the `create_code_channel` MCP tool or `/cc` in Slack; the options and the result are the same on all three (`src/shared/api.ts`). Everything else is the shape to hang things off: Access, D1 with migrations, a daily cron, the MCP handler, the Slack app, tests.
 
 ## Develop
 
@@ -62,6 +62,8 @@ Tools on `/mcp/core`: `whoami`, `hello`, `create_code_channel`, `notes_list`, `n
 Create an app named **pip** with the bot scopes `app_mentions:read`, `chat:write`, `commands`, `im:history`. Subscribe to `app_mention` and `message.im` at `https://pip.jonathannen.com/slack/events`. Put its signing secret and bot token in the secrets above. `SLACK_OWNER_USER_ID` in `vars` is your Slack member ID; the bot ignores everyone else.
 
 `/pip <text>` does the same as a DM, answered only to you: add it under **Slash Commands** → **Create New Command** with Request URL `https://pip.jonathannen.com/slack/events`, then reinstall the app for the `commands` scope.
+
+`/cc <prompt>` starts a code channel on the prompt (private, with the "In pynhq/pyn repo" preamble, on the default model). Start the text with `public:` for a public channel or `raw:` to skip the preamble. Add it as a second slash command with the same Request URL. It acks at once and posts the result (a link to the channel, or the error) when Slack has made it.
 
 `create_code_channel` uses Slack's undocumented web-client API with a browser session: `SLACK_CLIENT_TOKEN` is the `xoxc-` token and `SLACK_D_COOKIE` the `d` cookie, both copied from app.slack.com. `SLACK_WORKSPACE`, `SLACK_TEAM_ID` and `SLACK_CODE_APP_ID` in `vars` say where the channel is made.
 

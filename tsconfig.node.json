@@ -8,5 +8,5 @@
     "erasableSyntaxOnly": true,
     "rewriteRelativeImportExtensions": true
   },
-  "include": ["src/entry", "src/lib"]
+  "include": ["src/entry", "src/lib", "src/shared"]
 }

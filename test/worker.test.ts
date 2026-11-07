@@ -1,5 +1,5 @@
 import { exports } from 'cloudflare:workers';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 
 const worker = exports.default;
 
@@ -71,6 +71,51 @@ describe('notes', () => {
       body: JSON.stringify({ body: '   ' }),
     });
     expect(res.status).toBe(400);
+  });
+});
+
+describe('code channel', () => {
+  it('refuses an empty prompt', async () => {
+    const res = await worker.fetch('http://pip/api/code-channel', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ prompt: '  ' }),
+    });
+    expect(res.status).toBe(400);
+  });
+
+  it('refuses an unknown model', async () => {
+    const res = await worker.fetch('http://pip/api/code-channel', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ prompt: 'fix the build', model: 'GPT-2' }),
+    });
+    expect(res.status).toBe(400);
+  });
+
+  it('reads the /cc prefixes', async () => {
+    const { launchFromSlack } = await import('../src/worker/slack');
+    const calls: unknown[] = [];
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockImplementation(async (_url, init) => {
+      const form = init?.body as FormData;
+      calls.push(Object.fromEntries(form.entries()));
+      return Response.json({ ok: true, channel_id: 'C0123ABC' });
+    });
+    try {
+      const text = await launchFromSlack(
+        { SLACK_CLIENT_TOKEN: 'xoxc-test', SLACK_D_COOKIE: 'xoxd-test' },
+        'public: raw: ship it',
+      );
+      expect(text).toContain('<#C0123ABC>');
+      expect(text).toContain('ship it');
+      expect(calls).toHaveLength(1);
+      const sent = calls[0] as { is_private: string; blocks: string };
+      expect(sent.is_private).toBe('false');
+      expect(sent.blocks).toContain('"ship it"');
+      expect(sent.blocks).not.toContain('pynhq/pyn');
+    } finally {
+      fetchSpy.mockRestore();
+    }
   });
 });
 

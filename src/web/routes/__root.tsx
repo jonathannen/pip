@@ -29,6 +29,12 @@ function Root() {
           <Link activeOptions={{ exact: true }} className={styles.link} to="/">
             Notes
           </Link>
+          <Link className={styles.link} to="/code">
+            Code
+          </Link>
+          <Link className={styles.link} to="/mcp">
+            MCP
+          </Link>
           <Link className={styles.link} to="/about">
             About
           </Link>

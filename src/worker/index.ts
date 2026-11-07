@@ -1,7 +1,8 @@
 import { env } from 'cloudflare:workers';
 import { Hono } from 'hono';
-import { codeChannelsEnabled } from '../lib/code-channel';
-import type { Me, Note } from '../shared/api';
+import { codeChannelsEnabled, launchCodeChannel } from '../lib/code-channel';
+import type { CodeChannelRequest, CodeChannelResult, Me, Note } from '../shared/api';
+import { CODE_MODELS } from '../shared/api';
 import type { Identity } from './access';
 import { requireAccess } from './access';
 import { mcp } from './mcp';
@@ -36,7 +37,46 @@ const api = new Hono<{ Variables: { identity: Identity } }>()
       return c.json({ error: 'Not found' }, 404);
     }
     return c.body(null, 204);
+  })
+  // The website's "launch a code channel" form: the same options as the MCP tool and `/cc`.
+  .post('/code-channel', async (c) => {
+    if (!codeChannelsEnabled(env)) {
+      return c.json(
+        { error: 'Code channels are off: SLACK_CLIENT_TOKEN / SLACK_D_COOKIE are not set' },
+        503,
+      );
+    }
+    const request = parseCodeChannelRequest(await c.req.json().catch(() => null));
+    if (request === undefined) {
+      return c.json({ error: 'prompt must be a non-empty string' }, 400);
+    }
+    try {
+      return c.json<CodeChannelResult>(await launchCodeChannel(env, request), 201);
+    } catch (error) {
+      return c.json({ error: error instanceof Error ? error.message : String(error) }, 502);
+    }
   });
+
+/** The form's JSON, checked; undefined when the prompt is missing or an option is the wrong type. */
+function parseCodeChannelRequest(json: unknown): CodeChannelRequest | undefined {
+  if (json === null || typeof json !== 'object') {
+    return undefined;
+  }
+  const { prompt, is_private, add_preamble, model } = json as Record<string, unknown>;
+  if (typeof prompt !== 'string' || prompt.trim() === '') {
+    return undefined;
+  }
+  const bool = (value: unknown) => (value === undefined ? undefined : Boolean(value));
+  if (model !== undefined && !CODE_MODELS.includes(model as (typeof CODE_MODELS)[number])) {
+    return undefined;
+  }
+  return {
+    prompt: prompt.trim(),
+    is_private: bool(is_private),
+    add_preamble: bool(add_preamble),
+    model: model as CodeChannelRequest['model'],
+  };
+}
 
 const app = new Hono<{ Bindings: Env }>()
   .route('/api', api)

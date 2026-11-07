@@ -1,4 +1,5 @@
 import { SlackApp } from 'slack-edge';
+import { codeChannelsEnabled, launchCodeChannel } from '../lib/code-channel';
 import { addNote, listNotes, parseNoteBody } from './notes';
 
 /**
@@ -53,7 +54,81 @@ export function slack(env: Env) {
           text: await reply(payload.text, `slack:${payload.user_id}`),
         };
       })
+      // `/cc <prompt>` starts a Slack code channel on the prompt. Slack wants an answer within three
+      // seconds and creating the channel can take longer, so ack first and post the result after.
+      .command(
+        '/cc',
+        async ({ payload }) => {
+          if (payload.user_id !== env.SLACK_OWNER_USER_ID) {
+            return;
+          }
+          if (payload.text.trim() === '') {
+            return { response_type: 'ephemeral', text: CC_USAGE };
+          }
+          if (!codeChannelsEnabled(env)) {
+            return {
+              response_type: 'ephemeral',
+              text: 'Code channels are off: SLACK_CLIENT_TOKEN / SLACK_D_COOKIE are not set.',
+            };
+          }
+          return { response_type: 'ephemeral', text: ':hourglass: Starting a code channel…' };
+        },
+        async ({ context, payload }) => {
+          if (payload.user_id !== env.SLACK_OWNER_USER_ID || payload.text.trim() === '') {
+            return;
+          }
+          if (!codeChannelsEnabled(env)) {
+            return;
+          }
+          await context.respond({
+            response_type: 'ephemeral',
+            text: await launchFromSlack(env, payload.text),
+          });
+        },
+      )
   );
+}
+
+export const CC_USAGE =
+  'Say `/cc <prompt>` to start a code channel on the prompt. Begin with `public:` for a public channel, or `raw:` to skip the "In pynhq/pyn repo" preamble.';
+
+/**
+ * `/cc` text: optional `public:` and `raw:` prefixes, then the prompt. Replies with a link to the
+ * channel, or what went wrong.
+ */
+export async function launchFromSlack(
+  env: Parameters<typeof launchCodeChannel>[0],
+  text: string,
+): Promise<string> {
+  let prompt = text.trim();
+  let isPrivate = true;
+  let addPreamble = true;
+  for (;;) {
+    const match = /^(public|raw):\s*/i.exec(prompt);
+    if (!match) {
+      break;
+    }
+    if (match[1]?.toLowerCase() === 'public') {
+      isPrivate = false;
+    } else {
+      addPreamble = false;
+    }
+    prompt = prompt.slice(match[0].length);
+  }
+  if (prompt === '') {
+    return CC_USAGE;
+  }
+  try {
+    const result = await launchCodeChannel(env, {
+      prompt,
+      is_private: isPrivate,
+      add_preamble: addPreamble,
+    });
+    const where = result.channel_id ? `<#${result.channel_id}>` : 'a code channel';
+    return `:rocket: Started ${where} (${result.model}): ${result.prompt}`;
+  } catch (error) {
+    return `:x: Couldn't start the code channel: ${error instanceof Error ? error.message : String(error)}`;
+  }
 }
 
 export const USAGE =

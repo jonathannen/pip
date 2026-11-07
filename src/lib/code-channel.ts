@@ -1,9 +1,16 @@
 // Slack's internal web-client API (undocumented). Auth is the browser session:
 // an xoxc token in the form body plus the matching `d` (xoxd) cookie.
-// Shared by the Worker's MCP server and the stdio entry, so it takes its env.
+// Shared by the Worker's MCP server, the API, the Slack app and the stdio entry, so it takes its env.
 
 import type { McpServer } from '@modelcontextprotocol/server';
 import * as z from 'zod';
+import type { CodeChannelRequest, CodeChannelResult, CodeModel } from '../shared/api.ts';
+import {
+  CODE_CHANNEL_PREAMBLE,
+  CODE_MODEL_IDS,
+  CODE_MODELS,
+  DEFAULT_CODE_MODEL,
+} from '../shared/api.ts';
 
 export interface CodeChannelEnv {
   readonly SLACK_CLIENT_TOKEN?: string | undefined;
@@ -14,8 +21,6 @@ export interface CodeChannelEnv {
 }
 
 const DEFAULTS = { workspace: 'pynhq', teamId: 'TH0RA7683', codeAppId: 'A08SF47R6P4' };
-
-const PREAMBLE = 'In pynhq/pyn repo ';
 
 type SlackResponse = { ok: boolean; error?: string; [key: string]: unknown };
 
@@ -57,14 +62,6 @@ async function callClientApi(env: CodeChannelEnv, method: string, fields: Record
   return body;
 }
 
-const MODEL_IDS = {
-  'Opus 5.5': 'claude-opus-5-5',
-  'Fable 5.1': 'claude-fable-5-1',
-} as const;
-
-export type CodeModel = keyof typeof MODEL_IDS;
-export const CODE_MODELS = Object.keys(MODEL_IDS) as [CodeModel, ...CodeModel[]];
-
 export function createCodeChannel(
   env: CodeChannelEnv,
   prompt: string,
@@ -83,9 +80,47 @@ export function createCodeChannel(
     team_id: env.SLACK_TEAM_ID || DEFAULTS.teamId,
     is_private: String(isPrivate),
     blocks: JSON.stringify(blocks),
-    model: MODEL_IDS[model],
+    model: CODE_MODEL_IDS[model],
     entrypoint: 'fe_sidebar_context_menu',
   });
+}
+
+/** Slack's response names the channel in one of a few places; the first ID that looks like one. */
+function findChannelId(response: Record<string, unknown>): string | null {
+  const candidates = [
+    response.channel_id,
+    response.channel,
+    (response.channel as { id?: unknown } | undefined)?.id,
+    (response.code_channel as { channel_id?: unknown } | undefined)?.channel_id,
+  ];
+  for (const value of candidates) {
+    if (typeof value === 'string' && /^[CDG][A-Z0-9]+$/.test(value)) {
+      return value;
+    }
+  }
+  return null;
+}
+
+/**
+ * Creates a code channel with the same options the MCP tool takes, applying the defaults and the
+ * preamble. Throws when the secrets are missing or Slack says no.
+ */
+export async function launchCodeChannel(
+  env: CodeChannelEnv,
+  request: CodeChannelRequest,
+): Promise<CodeChannelResult> {
+  const { is_private = true, add_preamble = true, model = DEFAULT_CODE_MODEL } = request;
+  const prompt = add_preamble ? CODE_CHANNEL_PREAMBLE + request.prompt : request.prompt;
+  const response = await createCodeChannel(env, prompt, is_private, model);
+  const channelId = findChannelId(response);
+  const workspace = env.SLACK_WORKSPACE || DEFAULTS.workspace;
+  return {
+    prompt,
+    model,
+    channel_id: channelId,
+    url: channelId ? `https://${workspace}.slack.com/archives/${channelId}` : null,
+    response,
+  };
 }
 
 /** The `create_code_channel` tool, on the Worker's MCP server and the stdio one alike. */
@@ -99,15 +134,20 @@ export function registerCodeChannelTool(server: McpServer, env: CodeChannelEnv):
       inputSchema: z.object({
         prompt: z.string().min(1).describe('The task for the coding agent'),
         is_private: z.boolean().default(true).describe('Create the channel as private'),
-        add_preamble: z.boolean().default(true).describe(`Prefix the prompt with "${PREAMBLE}"`),
-        model: z.enum(CODE_MODELS).default('Opus 5.5').describe('Model for the coding agent'),
+        add_preamble: z
+          .boolean()
+          .default(true)
+          .describe(`Prefix the prompt with "${CODE_CHANNEL_PREAMBLE}"`),
+        model: z
+          .enum(CODE_MODELS)
+          .default(DEFAULT_CODE_MODEL)
+          .describe('Model for the coding agent'),
       }),
       annotations: { openWorldHint: true },
     },
-    async ({ prompt, is_private, add_preamble, model }) => {
+    async (request) => {
       try {
-        const fullPrompt = add_preamble ? PREAMBLE + prompt : prompt;
-        const result = await createCodeChannel(env, fullPrompt, is_private, model);
+        const result = await launchCodeChannel(env, request);
         return { content: [{ type: 'text', text: JSON.stringify(result, null, 2) }] };
       } catch (error) {
         return {
