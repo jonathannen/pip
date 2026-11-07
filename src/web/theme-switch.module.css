@@ -1,0 +1,41 @@
+.switch {
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  display: flex;
+  gap: 0.125rem;
+  margin: 0;
+  min-width: 0;
+  padding: 0.125rem;
+}
+
+.option {
+  background: none;
+  border: 0;
+  border-radius: 999px;
+  color: var(--text-subtle);
+  height: 1.5rem;
+  justify-content: center;
+  padding: 0;
+  transition: color 120ms;
+  width: 1.5rem;
+
+  &:hover {
+    color: var(--text);
+    opacity: 1;
+  }
+
+  &[aria-pressed="true"] {
+    background: var(--surface-hover);
+    color: var(--text);
+  }
+
+  & svg {
+    fill: none;
+    height: 0.875rem;
+    stroke: currentcolor;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+    stroke-width: 1.5;
+    width: 0.875rem;
+  }
+}

@@ -1,0 +1,77 @@
+.header {
+  backdrop-filter: blur(8px);
+  background: color-mix(in srgb, var(--bg) 85%, transparent);
+  border-bottom: 1px solid var(--border);
+  position: sticky;
+  top: 0;
+  z-index: 1;
+}
+
+.nav {
+  align-items: center;
+  display: flex;
+  gap: 0.25rem;
+  height: 3rem;
+  margin: 0 auto;
+  max-width: 56rem;
+  padding: 0 1.5rem;
+}
+
+.brand {
+  align-items: center;
+  display: flex;
+  font-weight: 600;
+  gap: 0.5rem;
+  letter-spacing: -0.01em;
+  margin-right: 1rem;
+}
+
+.mark {
+  height: 1.5rem;
+  width: 1.5rem;
+}
+
+.link {
+  border-radius: 0.375rem;
+  color: var(--text-muted);
+  padding: 0.25rem 0.625rem;
+  transition: color 120ms;
+
+  &:hover {
+    color: var(--text);
+  }
+
+  &[data-status="active"] {
+    background: var(--surface-hover);
+    color: var(--text);
+  }
+}
+
+/* Keeps the rows' z-indexed controls (stacked above their stretched links) under the sticky header and its menu. */
+.main {
+  isolation: isolate;
+  margin: 0 auto;
+  max-width: 56rem;
+  padding: 2.5rem 1.5rem 4rem;
+
+  /* Without the header (the Cards page), the page starts near the top. */
+  &[data-bare] {
+    padding-top: 0.5rem;
+  }
+}
+
+/* A phone: the brand, the four pages and the user menu share the width, so they close up rather than overflow. */
+@media (max-width: 40rem) {
+  .nav {
+    gap: 0;
+    padding: 0 0.75rem;
+  }
+
+  .brand {
+    margin-right: 0.25rem;
+  }
+
+  .link {
+    padding: 0.25rem 0.5rem;
+  }
+}

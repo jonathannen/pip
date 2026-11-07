@@ -1,0 +1,9 @@
+{
+  "mcpServers": {
+    "pip": {
+      "type": "stdio",
+      "command": "node",
+      "args": ["/Users/jon/Code/pip/src/entry/stdio.ts"]
+    }
+  }
+}

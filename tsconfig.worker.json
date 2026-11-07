@@ -1,0 +1,13 @@
+{
+  "extends": "./tsconfig.base.json",
+  "compilerOptions": {
+    "lib": ["esnext"],
+    "types": [
+      "./worker-configuration.d.ts",
+      "node",
+      "vite/client",
+      "@cloudflare/vitest-plugin/types"
+    ]
+  },
+  "include": ["src/worker", "src/shared", "src/lib", "test", "vite.config.ts", "vitest.config.ts"]
+}

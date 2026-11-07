@@ -1,0 +1,54 @@
+{
+  "$schema": "./node_modules/wrangler/config-schema.json",
+  "name": "pip",
+  "main": "src/worker/index.ts",
+  "compatibility_date": "2026-10-06",
+
+  // Only reachable through the custom domain, where Access sits in front.
+  // workers.dev and preview URLs would bypass Zero Trust.
+  "workers_dev": false,
+  "preview_urls": false,
+  "routes": [{ "pattern": "pip.jonathannen.com", "custom_domain": true }],
+
+  "assets": {
+    "not_found_handling": "single-page-application",
+    "run_worker_first": ["/api/*", "/mcp/*", "/slack/*"]
+  },
+
+  "observability": { "enabled": true },
+
+  // The Worker Version serving the request, for /api/me.
+  "version_metadata": { "binding": "CF_VERSION_METADATA" },
+
+  // `database_id` comes from `wrangler d1 create pip` (see README).
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "pip",
+      "database_id": "REPLACE_WITH_wrangler_d1_create_pip",
+      "migrations_dir": "migrations"
+    }
+  ],
+
+  // A daily heartbeat (HEARTBEAT_CRON in src/worker/index.ts); hang scheduled work off it.
+  "triggers": { "crons": ["0 20 * * *"] },
+
+  "vars": {
+    // Zero Trust: the team domain and the Access app's AUD tag (see README).
+    "ACCESS_TEAM_DOMAIN": "https://REPLACE.cloudflareaccess.com",
+    "ACCESS_AUD": "REPLACE_WITH_ACCESS_APP_AUD",
+    // The Slack member ID the bot answers; everyone else is ignored.
+    "SLACK_OWNER_USER_ID": "UH0UN1VT4",
+    // The Slack workspace the code channel tool creates channels in (src/lib/code-channel.ts).
+    "SLACK_WORKSPACE": "pynhq",
+    "SLACK_TEAM_ID": "TH0RA7683",
+    "SLACK_CODE_APP_ID": "A08SF47R6P4"
+  },
+
+  // Set with `wrangler secret put NAME`; locally from .dev.vars.
+  // SLACK_CLIENT_TOKEN and SLACK_D_COOKIE are optional: the create_code_channel MCP tool uses them (a browser session's
+  // xoxc token and d cookie, src/lib/code-channel.ts); without them the tool reports that it's off.
+  "secrets": {
+    "required": ["SLACK_SIGNING_SECRET", "SLACK_BOT_TOKEN"]
+  }
+}

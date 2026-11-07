@@ -1,0 +1,12 @@
+allowBuilds:
+  esbuild: true
+  workerd: true
+minimumReleaseAgeExclude:
+  - '@tanstack/history@1.162.5'
+  - '@tanstack/react-router@1.170.46'
+  - '@tanstack/router-core@1.171.39'
+  - '@tanstack/router-generator@1.167.46'
+  - '@tanstack/router-plugin@1.168.48'
+overrides:
+  'undici@>=7 <7.30.1': ^7.30.1
+  'zod@>=4 <4.6.6': ^4.6.6

@@ -1,0 +1,6 @@
+# Copy to .dev.vars for local dev. Production values: `wrangler secret put NAME`.
+SLACK_SIGNING_SECRET=
+SLACK_BOT_TOKEN=xoxb-
+# Optional, for the create_code_channel MCP tool: a Slack browser session's xoxc token and `d` cookie.
+SLACK_CLIENT_TOKEN=
+SLACK_D_COOKIE=
