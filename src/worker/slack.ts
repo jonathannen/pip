@@ -31,8 +31,15 @@ export function slack(env: Env) {
             text: owner ? await reply(text, `slack:${payload.user}`) : echo(text),
           });
         } catch (error) {
-          // chat.postMessage failed (bad SLACK_BOT_TOKEN, missing chat:write, ...).
-          console.error('pip: reply failed', error);
+          // chat.postMessage failed (bad SLACK_BOT_TOKEN, missing chat:write, ...). Log which
+          // workspace the token belongs to against the one that sent the event.
+          const whoami = await context.client.auth
+            .test()
+            .catch((e: unknown) => ({ error: String(e) }));
+          console.error('pip: reply failed', error, {
+            event: { team: payload.team, channel: payload.channel, user: payload.user },
+            token: whoami,
+          });
           throw error;
         }
       })
