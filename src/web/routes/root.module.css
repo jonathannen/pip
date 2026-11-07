@@ -2,6 +2,8 @@
   backdrop-filter: blur(8px);
   background: color-mix(in srgb, var(--bg) 85%, transparent);
   border-bottom: 1px solid var(--border);
+  /* Installed on a phone, the page runs under the status bar (viewport-fit=cover); keep the nav below it. */
+  padding-top: env(safe-area-inset-top);
   position: sticky;
   top: 0;
   z-index: 1;
@@ -14,7 +16,7 @@
   height: 3rem;
   margin: 0 auto;
   max-width: 56rem;
-  padding: 0 1.5rem;
+  padding: 0 calc(1.5rem + env(safe-area-inset-right)) 0 calc(1.5rem + env(safe-area-inset-left));
 }
 
 .brand {
@@ -52,7 +54,8 @@
   isolation: isolate;
   margin: 0 auto;
   max-width: 56rem;
-  padding: 2.5rem 1.5rem 4rem;
+  padding: 2.5rem calc(1.5rem + env(safe-area-inset-right)) calc(4rem + env(safe-area-inset-bottom))
+    calc(1.5rem + env(safe-area-inset-left));
 
   /* Without the header (the Cards page), the page starts near the top. */
   &[data-bare] {
@@ -64,7 +67,8 @@
 @media (max-width: 40rem) {
   .nav {
     gap: 0;
-    padding: 0 0.75rem;
+    padding: 0 calc(0.75rem + env(safe-area-inset-right)) 0
+      calc(0.75rem + env(safe-area-inset-left));
   }
 
   .brand {
