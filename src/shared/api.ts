@@ -20,6 +20,26 @@ export interface Note {
 
 export const NOTE_MAX_LENGTH = 2000;
 
+/** `GET /api/deployment`: the build of pip serving the request, for Settings. */
+export interface Deployment {
+  /** The GitHub repository pip's source is in. */
+  readonly repo: string;
+  /** The commit it was built from; null when it wasn't built (`vite dev`). */
+  readonly commit: string | null;
+  /** The branch it was built from; null when unknown. */
+  readonly branch: string | null;
+  /** Whether the checkout had uncommitted changes when built. */
+  readonly dirty: boolean;
+  /** When `vite build` ran; null under `vite dev`. */
+  readonly built_at: string | null;
+  /** The Cloudflare Worker version serving it; "local" under `vite dev`. */
+  readonly version_id: string;
+  /** The version's tag; null without one. */
+  readonly version_tag: string | null;
+  /** When the version was uploaded; null under `vite dev`. */
+  readonly deployed_at: string | null;
+}
+
 /** The models a Slack code channel's agent can run on, by display name. */
 export const CODE_MODEL_IDS = {
   'Opus 5.5': 'claude-opus-5-5',

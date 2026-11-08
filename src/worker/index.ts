@@ -1,7 +1,7 @@
 import { env } from 'cloudflare:workers';
 import { Hono } from 'hono';
 import { codeChannelsEnabled, launchCodeChannel } from '../lib/code-channel';
-import type { CodeChannelRequest, CodeChannelResult, Me, Note } from '../shared/api';
+import type { CodeChannelRequest, CodeChannelResult, Deployment, Me, Note } from '../shared/api';
 import { CODE_MODELS } from '../shared/api';
 import type { Identity } from './access';
 import { requireAccess } from './access';
@@ -20,6 +20,7 @@ const api = new Hono<{ Variables: { identity: Identity } }>()
       version: import.meta.env.DEV ? 'local' : env.CF_VERSION_METADATA.id,
     });
   })
+  .get('/deployment', (c) => c.json<Deployment>(deployment()))
   .get('/notes', async (c) => c.json<Note[]>(await listNotes()))
   .post('/notes', async (c) => {
     const json: unknown = await c.req.json().catch(() => null);
@@ -56,6 +57,24 @@ const api = new Hono<{ Variables: { identity: Identity } }>()
       return c.json({ error: error instanceof Error ? error.message : String(error) }, 502);
     }
   });
+
+/** The GitHub repository pip's source is in, for the commit link on Settings. */
+const PIP_REPO = 'jonathannen/pip';
+
+/** The build serving this request: what vite.config.ts built in, and the Worker version. */
+function deployment(): Deployment {
+  const version = import.meta.env.DEV ? null : env.CF_VERSION_METADATA;
+  return {
+    repo: PIP_REPO,
+    commit: import.meta.env.PIP_COMMIT ?? null,
+    branch: import.meta.env.PIP_BRANCH ?? null,
+    dirty: import.meta.env.PIP_DIRTY ?? false,
+    built_at: import.meta.env.PIP_BUILT_AT ?? null,
+    version_id: version?.id ?? 'local',
+    version_tag: version?.tag || null,
+    deployed_at: version?.timestamp ?? null,
+  };
+}
 
 /** The form's JSON, checked; undefined when the prompt is missing or an option is the wrong type. */
 function parseCodeChannelRequest(json: unknown): CodeChannelRequest | undefined {

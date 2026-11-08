@@ -10,4 +10,17 @@ declare global {
   }
 }
 
+/** What vite.config.ts builds in for Settings' Deployed; absent under `vite dev` and in tests. */
+// biome-ignore lint/correctness/noUnusedVariables: merges into Vite's ImportMetaEnv
+interface ImportMetaEnv {
+  /** The commit pip was built from. */
+  readonly PIP_COMMIT?: string | null;
+  /** The branch pip was built from. */
+  readonly PIP_BRANCH?: string | null;
+  /** Whether the checkout had uncommitted changes. */
+  readonly PIP_DIRTY?: boolean;
+  /** When the build ran, ISO 8601. */
+  readonly PIP_BUILT_AT?: string | null;
+}
+
 export {};

@@ -4,14 +4,14 @@ Jon's personal bot: a website, an MCP server and a Slack bot on one Cloudflare W
 
 | Path | What | Auth |
 | --- | --- | --- |
-| `/`, `/code`, `/mcp`, `/about` | React SPA (`src/web/`): notes, a prompt that launches a code channel, how to connect an MCP client | Cloudflare Access |
+| `/`, `/code`, `/mcp`, `/settings` | React SPA (`src/web/`): notes, a prompt that launches a code channel, how to connect an MCP client, settings with the deployed build | Cloudflare Access |
 | `/api/*` | JSON API for the SPA (`src/worker/index.ts`) | Cloudflare Access |
 | `/mcp/<name>` | MCP servers (`src/worker/mcp/`) | Cloudflare Access (user or service token) |
 | `/slack/events` | Slack Events API, slash commands `/pip` and `/cc` (`src/worker/slack.ts`) | Slack request signature |
 
 The Worker also verifies the `Cf-Access-Jwt-Assertion` header on `/api` and `/mcp`, and is only reachable on its custom domain (`workers_dev` and `preview_urls` are off).
 
-What it does so far is deliberately small: **notes**, short things kept in D1 from the website, the `notes_*` MCP tools or a Slack DM (`note <text>`, `notes`). **Code channels** (`src/lib/code-channel.ts`) start a Slack code channel on a prompt, from the `/code` page (`POST /api/code-channel`), the `create_code_channel` MCP tool or `/cc` in Slack; the options and the result are the same on all three (`src/shared/api.ts`). The site is an installable PWA (`public/manifest.webmanifest`, the icons next to it, and `public/sw.js`, which only caches the hashed build assets; pages and `/api` always hit the network so Access and data stay fresh). Everything else is the shape to hang things off: Access, D1 with migrations, a daily cron, the MCP handler, the Slack app, tests.
+What it does so far is deliberately small: **notes**, short things kept in D1 from the website, the `notes_*` MCP tools or a Slack DM (`note <text>`, `notes`). **Code channels** (`src/lib/code-channel.ts`) start a Slack code channel on a prompt, from the `/code` page (`POST /api/code-channel`), the `create_code_channel` MCP tool or `/cc` in Slack; the options and the result are the same on all three (`src/shared/api.ts`). Settings shows the build serving the page (`GET /api/deployment`): the commit, branch and build time that `vite.config.ts` defines into the bundle at `vite build` (from Workers Builds' env or the checkout's git), plus the Worker version from `CF_VERSION_METADATA`. The site is an installable PWA (`public/manifest.webmanifest`, the icons next to it, and `public/sw.js`, which only caches the hashed build assets; pages and `/api` always hit the network so Access and data stay fresh). Everything else is the shape to hang things off: Access, D1 with migrations, a daily cron, the MCP handler, the Slack app, tests.
 
 ## Develop
 

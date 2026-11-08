@@ -5,7 +5,7 @@ import { useDismiss } from './use-dismiss';
 import styles from './user-menu.module.css';
 
 /**
- * The signed-in email, which opens a panel with a link to About and the theme switch. Closes on
+ * The signed-in email, which opens a panel with a link to Settings and the theme switch. Closes on
  * Escape, an outside click, tabbing away or following a link.
  */
 export function UserMenu({ email }: { readonly email: string }) {
@@ -34,8 +34,8 @@ export function UserMenu({ email }: { readonly email: string }) {
       </button>
       {open && (
         <div className={styles.panel} id={panelId}>
-          <Link className={styles.item} onClick={() => setOpen(false)} to="/about">
-            About
+          <Link className={styles.item} onClick={() => setOpen(false)} to="/settings">
+            Settings
           </Link>
           <div className={styles.theme}>
             <span className={styles.label}>Theme</span>

@@ -63,7 +63,7 @@
   }
 }
 
-/* A phone: the brand, the four pages and the user menu share the width, so they close up rather than overflow. */
+/* A phone: the brand, the three pages and the user menu share the width, so they close up rather than overflow. */
 @media (max-width: 40rem) {
   .nav {
     gap: 0;
