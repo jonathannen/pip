@@ -51,14 +51,14 @@ function Settings() {
           <dt>Session</dt>
           <dd>
             {me.code_channels_enabled ? (
-              <>
+              <span>
                 <code>SLACK_CLIENT_TOKEN</code> and <code>SLACK_D_COOKIE</code> are set.
-              </>
+              </span>
             ) : (
-              <>
+              <span>
                 Set <code>SLACK_CLIENT_TOKEN</code> and <code>SLACK_D_COOKIE</code> with{' '}
                 <code>wrangler secret put</code>: a Slack browser session's xoxc token and d cookie.
-              </>
+              </span>
             )}
           </dd>
           <dt>Default model</dt>
