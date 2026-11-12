@@ -1,5 +1,5 @@
 import { SlackApp } from 'slack-edge';
-import { codeChannelsEnabled, launchCodeChannel } from '../lib/code-channel';
+import { callClientApi, codeChannelsEnabled, launchCodeChannel } from '../lib/code-channel';
 import { addNote, listNotes, parseNoteBody } from './notes';
 
 /**
@@ -86,6 +86,29 @@ export function slack(env: Env) {
           });
         },
       )
+      // `/sitrep` asks every channel in the owner's "Scheduled" sidebar section for its status, as
+      // the owner. Ack first and post the result after, like `/cc`.
+      .command(
+        '/sitrep',
+        async ({ payload }) => {
+          if (payload.user_id !== env.SLACK_OWNER_USER_ID) {
+            return;
+          }
+          if (!codeChannelsEnabled(env)) {
+            return {
+              response_type: 'ephemeral',
+              text: 'Sitrep is off: SLACK_CLIENT_TOKEN / SLACK_D_COOKIE are not set.',
+            };
+          }
+          return { response_type: 'ephemeral', text: ':hourglass: Asking the Scheduled channels…' };
+        },
+        async ({ context, payload }) => {
+          if (payload.user_id !== env.SLACK_OWNER_USER_ID || !codeChannelsEnabled(env)) {
+            return;
+          }
+          await context.respond({ response_type: 'ephemeral', text: await sitrepFromSlack(env) });
+        },
+      )
   );
 }
 
@@ -129,6 +152,68 @@ export async function launchFromSlack(
   } catch (error) {
     return `:x: Couldn't start the code channel: ${error instanceof Error ? error.message : String(error)}`;
   }
+}
+
+/** The sidebar section `/sitrep` posts to, and what it posts. */
+export const SITREP_SECTION = 'Scheduled';
+export const SITREP_PROMPT =
+  'give me the current status - things in flight, blockers, things that need action. Be concise, use bullets';
+
+/** A sidebar section in `users.channelSections.list` (undocumented), as far as `/sitrep` reads it. */
+interface SidebarSection {
+  readonly name?: unknown;
+  readonly channel_ids?: unknown;
+  readonly channel_ids_page?: { readonly channel_ids?: unknown; readonly cursor?: unknown };
+}
+
+/**
+ * `/sitrep`: posts SITREP_PROMPT as the owner to every channel in the sidebar section named
+ * SITREP_SECTION. Replies with the channels pinged, or what went wrong.
+ */
+export async function sitrepFromSlack(env: Parameters<typeof callClientApi>[0]): Promise<string> {
+  let sections: (SidebarSection | undefined)[];
+  try {
+    const response = await callClientApi(env, 'users.channelSections.list', {});
+    sections = Array.isArray(response.channel_sections) ? response.channel_sections : [];
+  } catch (error) {
+    return `:x: Couldn't read the sidebar sections: ${error instanceof Error ? error.message : String(error)}`;
+  }
+  const names = sections.map((s) => (typeof s?.name === 'string' ? s.name.trim() : ''));
+  const index = names.findIndex((name) => name.toLowerCase() === SITREP_SECTION.toLowerCase());
+  const section = sections[index];
+  if (!section) {
+    const found = names.filter(Boolean).join(', ') || 'none';
+    return `:x: No sidebar section named "${SITREP_SECTION}". Sections found: ${found}.`;
+  }
+  // The IDs are in `channel_ids_page`; a plain `channel_ids` on the section is the fallback.
+  const page = section.channel_ids_page;
+  const ids = page?.channel_ids ?? section.channel_ids;
+  const channels: string[] = Array.isArray(ids) ? ids.filter((id) => typeof id === 'string') : [];
+  if (channels.length === 0) {
+    return `:x: The "${SITREP_SECTION}" sidebar section has no channels.`;
+  }
+  const results = await Promise.allSettled(
+    channels.map((channel) =>
+      callClientApi(env, 'chat.postMessage', { channel, text: SITREP_PROMPT }),
+    ),
+  );
+  const pinged: string[] = [];
+  const failed: string[] = [];
+  for (const [i, result] of results.entries()) {
+    if (result.status === 'fulfilled') {
+      pinged.push(`<#${channels[i]}>`);
+    } else {
+      const reason = result.reason instanceof Error ? result.reason.message : String(result.reason);
+      failed.push(`:x: <#${channels[i]}>: ${reason}`);
+    }
+  }
+  const lines = pinged.length > 0 ? [`:mega: Pinged ${pinged.join(', ')}.`] : [];
+  lines.push(...failed);
+  if (page?.cursor) {
+    // Slack pages a section's channels, and how to ask for the next page isn't known.
+    lines.push(':warning: Slack listed only the first page of the section; some may be missing.');
+  }
+  return lines.join('\n');
 }
 
 export const USAGE =

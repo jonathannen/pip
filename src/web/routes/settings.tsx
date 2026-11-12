@@ -95,8 +95,9 @@ function Settings() {
             <h2>Slack</h2>
             <p>
               Mention <b>@pip</b> or DM it (<code>note …</code>, <code>notes</code>);{' '}
-              <code>/pip</code> does the same and <code>/cc</code> starts a code channel. It only
-              answers its owner.
+              <code>/pip</code> does the same, <code>/cc</code> starts a code channel and{' '}
+              <code>/sitrep</code> asks the channels in your Scheduled sidebar section for their
+              status. It only answers its owner.
             </p>
           </div>
         </div>

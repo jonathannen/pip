@@ -7,7 +7,7 @@ Jon's personal bot: a website, an MCP server and a Slack bot on one Cloudflare W
 | `/`, `/code`, `/mcp`, `/settings` | React SPA (`src/web/`): notes, a prompt that launches a code channel, how to connect an MCP client, settings with the deployed build | Cloudflare Access |
 | `/api/*` | JSON API for the SPA (`src/worker/index.ts`) | Cloudflare Access |
 | `/mcp/<name>` | MCP servers (`src/worker/mcp/`) | Cloudflare Access (user or service token) |
-| `/slack/events` | Slack Events API, slash commands `/pip` and `/cc` (`src/worker/slack.ts`) | Slack request signature |
+| `/slack/events` | Slack Events API, slash commands `/pip`, `/cc` and `/sitrep` (`src/worker/slack.ts`) | Slack request signature |
 
 The Worker also verifies the `Cf-Access-Jwt-Assertion` header on `/api` and `/mcp`, and is only reachable on its custom domain (`workers_dev` and `preview_urls` are off).
 
@@ -64,6 +64,8 @@ Create an app named **pip** with the bot scopes `app_mentions:read`, `chat:write
 `/pip <text>` does the same as a DM, answered only to you: add it under **Slash Commands** → **Create New Command** with Request URL `https://pip.jonathannen.com/slack/events`, then reinstall the app for the `commands` scope.
 
 `/cc <prompt>` starts a code channel on the prompt (private, with the "In pynhq/pyn repo" preamble, on the default model). Start the text with `public:` for a public channel or `raw:` to skip the preamble. Add it as a second slash command with the same Request URL. It acks at once and posts the result (a link to the channel, or the error) when Slack has made it.
+
+`/sitrep` asks every channel in your sidebar section named "Scheduled" for its status: it posts "give me the current status - things in flight, blockers, things that need action. Be concise, use bullets" to each as you, not as pip. The channels are read from the sidebar when it runs, so moving a channel in or out of the section is all the setup there is. Add it as a third slash command with the same Request URL. It acks at once and then says which channels it pinged and which failed. It uses the same browser session as `create_code_channel`, so it needs `SLACK_CLIENT_TOKEN` / `SLACK_D_COOKIE`.
 
 `create_code_channel` uses Slack's undocumented web-client API with a browser session: `SLACK_CLIENT_TOKEN` is the `xoxc-` token and `SLACK_D_COOKIE` the `d` cookie, both copied from app.slack.com. `SLACK_WORKSPACE`, `SLACK_TEAM_ID` and `SLACK_CODE_APP_ID` in `vars` say where the channel is made.
 

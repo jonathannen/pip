@@ -119,6 +119,56 @@ describe('code channel', () => {
   });
 });
 
+describe('sitrep', () => {
+  it('pings the channels in the Scheduled section', async () => {
+    const { SITREP_PROMPT, sitrepFromSlack } = await import('../src/worker/slack');
+    const posts: unknown[] = [];
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockImplementation(async (url, init) => {
+      if (String(url).endsWith('/api/users.channelSections.list')) {
+        return Response.json({
+          ok: true,
+          channel_sections: [
+            {
+              channel_section_id: 'L01',
+              name: 'Other',
+              type: 'standard',
+              channel_ids_page: { channel_ids: ['C0OTHER'], count: 1 },
+            },
+            {
+              channel_section_id: 'L02',
+              name: ' scheduled ',
+              type: 'standard',
+              channel_ids_page: { channel_ids: ['C0AAA', 'C0BBB'], count: 2 },
+            },
+          ],
+        });
+      }
+      const form = init?.body as FormData;
+      posts.push({ url: String(url), ...Object.fromEntries(form.entries()) });
+      return Response.json({ ok: true });
+    });
+    try {
+      const text = await sitrepFromSlack({
+        SLACK_CLIENT_TOKEN: 'xoxc-test',
+        SLACK_D_COOKIE: 'xoxd-test',
+      });
+      expect(text).toContain('<#C0AAA>');
+      expect(text).toContain('<#C0BBB>');
+      expect(text).not.toContain('C0OTHER');
+      const url = 'https://pynhq.slack.com/api/chat.postMessage';
+      expect(posts).toEqual([
+        { url, token: 'xoxc-test', channel: 'C0AAA', text: SITREP_PROMPT },
+        { url, token: 'xoxc-test', channel: 'C0BBB', text: SITREP_PROMPT },
+      ]);
+      expect(SITREP_PROMPT).toBe(
+        'give me the current status - things in flight, blockers, things that need action. Be concise, use bullets',
+      );
+    } finally {
+      fetchSpy.mockRestore();
+    }
+  });
+});
+
 describe('mcp', () => {
   it('lists the core tools', async () => {
     const res = await worker.fetch('http://pip/mcp/core', {
