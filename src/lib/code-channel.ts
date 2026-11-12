@@ -37,7 +37,11 @@ function requireEnv(env: CodeChannelEnv, name: 'SLACK_CLIENT_TOKEN' | 'SLACK_D_C
   return value;
 }
 
-async function callClientApi(env: CodeChannelEnv, method: string, fields: Record<string, string>) {
+export async function callClientApi(
+  env: CodeChannelEnv,
+  method: string,
+  fields: Record<string, string>,
+) {
   const form = new FormData();
   form.set('token', requireEnv(env, 'SLACK_CLIENT_TOKEN'));
   for (const [key, value] of Object.entries(fields)) {
