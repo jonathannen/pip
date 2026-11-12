@@ -138,7 +138,7 @@ describe('sitrep', () => {
               channel_section_id: 'L02',
               name: ' scheduled ',
               type: 'standard',
-              channel_ids_page: { channel_ids: ['C0AAA', 'C0BBB'], count: 2 },
+              channel_ids_page: { channel_ids: ['C0AAA', 'C0BBB'], count: 2, cursor: 'abc' },
             },
           ],
         });
@@ -155,6 +155,7 @@ describe('sitrep', () => {
       expect(text).toContain('<#C0AAA>');
       expect(text).toContain('<#C0BBB>');
       expect(text).not.toContain('C0OTHER');
+      expect(text).not.toContain(':warning:');
       const url = 'https://pynhq.slack.com/api/chat.postMessage';
       expect(posts).toEqual([
         { url, token: 'xoxc-test', channel: 'C0AAA', text: SITREP_PROMPT },
@@ -163,6 +164,27 @@ describe('sitrep', () => {
       expect(SITREP_PROMPT).toBe(
         'give me the current status - things in flight, blockers, things that need action. Be concise, use bullets',
       );
+    } finally {
+      fetchSpy.mockRestore();
+    }
+  });
+
+  it('warns when Slack lists fewer channels than the section has', async () => {
+    const { sitrepFromSlack } = await import('../src/worker/slack');
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockImplementation(async () =>
+      Response.json({
+        ok: true,
+        channel_sections: [
+          { name: 'Scheduled', channel_ids_page: { channel_ids: ['C0AAA', 'C0BBB'], count: 3 } },
+        ],
+      }),
+    );
+    try {
+      const text = await sitrepFromSlack({
+        SLACK_CLIENT_TOKEN: 'xoxc-test',
+        SLACK_D_COOKIE: 'xoxd-test',
+      });
+      expect(text).toContain(':warning: Slack listed only 2 of 3 channels in the section.');
     } finally {
       fetchSpy.mockRestore();
     }
