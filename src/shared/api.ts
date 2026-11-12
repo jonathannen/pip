@@ -43,12 +43,13 @@ export interface Deployment {
 /** The models a Slack code channel's agent can run on, by display name. */
 export const CODE_MODEL_IDS = {
   'Opus 5.5': 'claude-opus-5-5',
+  'Fable 5.2': 'claude-fable-5-2',
   'Fable 5.1': 'claude-fable-5-1',
 } as const;
 
 export type CodeModel = keyof typeof CODE_MODEL_IDS;
 export const CODE_MODELS = Object.keys(CODE_MODEL_IDS) as [CodeModel, ...CodeModel[]];
-export const DEFAULT_CODE_MODEL: CodeModel = 'Opus 5.5';
+export const DEFAULT_CODE_MODEL: CodeModel = 'Fable 5.2';
 
 /** Prefixed to a code channel's prompt unless asked not to. */
 export const CODE_CHANNEL_PREAMBLE = 'In pynhq/pyn repo ';
