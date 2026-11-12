@@ -163,7 +163,7 @@ export const SITREP_PROMPT =
 interface SidebarSection {
   readonly name?: unknown;
   readonly channel_ids?: unknown;
-  readonly channel_ids_page?: { readonly channel_ids?: unknown; readonly cursor?: unknown };
+  readonly channel_ids_page?: { readonly channel_ids?: unknown; readonly count?: unknown };
 }
 
 /**
@@ -209,9 +209,13 @@ export async function sitrepFromSlack(env: Parameters<typeof callClientApi>[0]):
   }
   const lines = pinged.length > 0 ? [`:mega: Pinged ${pinged.join(', ')}.`] : [];
   lines.push(...failed);
-  if (page?.cursor) {
-    // Slack pages a section's channels, and how to ask for the next page isn't known.
-    lines.push(':warning: Slack listed only the first page of the section; some may be missing.');
+  const count = page?.count;
+  if (typeof count === 'number' && count > channels.length) {
+    // `count` looks to be the section's size. Slack can list fewer, and how to ask for the rest
+    // isn't known; the page's `cursor` is set on a complete list too, so it says nothing.
+    lines.push(
+      `:warning: Slack listed only ${channels.length} of ${count} channels in the section.`,
+    );
   }
   return lines.join('\n');
 }
