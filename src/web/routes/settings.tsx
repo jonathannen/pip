@@ -10,6 +10,8 @@ export const Route = createFileRoute('/settings')({ component: Settings });
 
 function Settings() {
   const me = root.useLoaderData();
+  // The draft tools work once the OAuth client is set and Gmail has been connected with it.
+  const gmailOn = me.gmail_enabled && me.gmail_connected_at !== null;
   return (
     <>
       <h1>Settings</h1>
@@ -77,10 +79,60 @@ function Settings() {
       <section className={styles.section}>
         <div className={styles.sectionHead}>
           <div>
+            <h2>Gmail</h2>
+            <p>
+              Read and write Gmail drafts through the <code>drafts_*</code> MCP tools. pip has no
+              tool that sends.
+            </p>
+          </div>
+          <span className={styles.status} data-off={!gmailOn || undefined}>
+            <span className={styles.dot} data-error={!gmailOn || undefined} />
+            {gmailOn ? 'On' : 'Off'}
+          </span>
+        </div>
+        <dl className={styles.facts}>
+          <dt>Client</dt>
+          <dd>
+            {me.gmail_enabled ? (
+              <span>
+                <code>GOOGLE_CLIENT_ID</code> and <code>GOOGLE_CLIENT_SECRET</code> are set.
+              </span>
+            ) : (
+              <span>
+                Set <code>GOOGLE_CLIENT_ID</code> and <code>GOOGLE_CLIENT_SECRET</code> with{' '}
+                <code>wrangler secret put</code>: a Google OAuth client's ID and secret.
+              </span>
+            )}
+          </dd>
+          <dt>Connection</dt>
+          <dd>
+            {me.gmail_connected_at === null ? (
+              <span>Not connected</span>
+            ) : (
+              <span>
+                Connected{' '}
+                <time dateTime={me.gmail_connected_at}>
+                  {new Date(me.gmail_connected_at).toLocaleString()}
+                </time>
+              </span>
+            )}
+            {/* A plain link: the sign-in is the Worker's, not a page of this app. */}
+            {me.gmail_enabled && (
+              <a className={styles.view} href="/auth/google">
+                {me.gmail_connected_at === null ? 'Connect Gmail' : 'Reconnect'}
+              </a>
+            )}
+          </dd>
+        </dl>
+      </section>
+
+      <section className={styles.section}>
+        <div className={styles.sectionHead}>
+          <div>
             <h2>MCP</h2>
             <p>
-              <code>/mcp/core</code> gives agents such as Claude Code <code>whoami</code>, the notes
-              and <code>create_code_channel</code>.
+              <code>/mcp/core</code> gives agents such as Claude Code <code>whoami</code>, the
+              notes, <code>create_code_channel</code> and the Gmail <code>drafts_*</code> tools.
             </p>
           </div>
           <Link className={styles.view} to="/mcp">

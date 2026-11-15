@@ -13,6 +13,21 @@ export async function getRefreshToken(): Promise<string | null> {
   return row?.refresh_token ?? null;
 }
 
+/**
+ * When Gmail was connected, for Settings; null when it isn't, or when the table can't be read (its
+ * migration hasn't been applied).
+ */
+export async function gmailConnectedAt(): Promise<string | null> {
+  try {
+    const row = await env.DB.prepare('SELECT updated_at FROM google_auth WHERE id = 1').first<{
+      updated_at: string;
+    }>();
+    return row?.updated_at ?? null;
+  } catch {
+    return null;
+  }
+}
+
 async function storeRefreshToken(refreshToken: string): Promise<void> {
   await env.DB.prepare(
     `INSERT INTO google_auth (id, refresh_token) VALUES (1, ?1)
@@ -30,7 +45,7 @@ const redirectUri = (requestUrl: string) => new URL('/auth/google/callback', req
 
 /**
  * `/auth/google`: the one-time Google sign-in that connects Gmail for the draft tools
- * (src/lib/gmail.ts). Visit it in a browser; the callback stores the refresh token in D1.
+ * (src/lib/gmail.ts). Settings links to it; the callback stores the refresh token in D1.
  */
 export const google = new Hono<{ Variables: { identity: Identity } }>()
   .use(requireAccess)
@@ -65,5 +80,6 @@ export const google = new Hono<{ Variables: { identity: Identity } }>()
     } catch (e) {
       return c.text(e instanceof Error ? e.message : String(e), 502);
     }
-    return c.text('Gmail connected. pip can now read and write your drafts.');
+    // Back to Settings, whose Gmail card now says it's connected.
+    return c.redirect('/settings');
   });

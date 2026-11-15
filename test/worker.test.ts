@@ -1,5 +1,6 @@
 import { env, exports } from 'cloudflare:workers';
 import { describe, expect, it, vi } from 'vitest';
+import type { Me } from '../src/shared/api';
 
 const worker = exports.default;
 
@@ -110,6 +111,8 @@ describe('access', () => {
     expect(await res.json()).toEqual({
       email: 'dev@localhost',
       code_channels_enabled: true,
+      gmail_enabled: true,
+      gmail_connected_at: null,
       service_token: false,
       version: 'local',
     });
@@ -298,10 +301,11 @@ describe('google sign-in', () => {
     try {
       const res = await worker.fetch(
         `http://pip/auth/google/callback?code=the-code&state=${state}`,
-        { headers: { cookie } },
+        { headers: { cookie }, redirect: 'manual' },
       );
-      expect(res.status).toBe(200);
-      expect(await res.text()).toContain('Gmail connected');
+      // Back to Settings, where the Gmail card shows the connection.
+      expect(res.status).toBe(302);
+      expect(res.headers.get('location')).toBe('/settings');
       expect(google.tokenRequests).toEqual([
         {
           client_id: 'google-client-id',
@@ -333,6 +337,47 @@ describe('google sign-in', () => {
       google.restore();
     }
     expect(await env.DB.prepare('SELECT refresh_token FROM google_auth').first()).toBeNull();
+  });
+
+  /** What /api/me tells Settings' Gmail card. */
+  async function gmailStatus() {
+    const res = await worker.fetch('http://pip/api/me');
+    const { gmail_enabled, gmail_connected_at } = await res.json<Me>();
+    return { gmail_enabled, gmail_connected_at };
+  }
+
+  it('tells Settings whether Gmail is connected, and since when', async () => {
+    await env.DB.exec('DELETE FROM google_auth');
+    expect(await gmailStatus()).toEqual({ gmail_enabled: true, gmail_connected_at: null });
+
+    await env.DB.prepare(
+      "INSERT INTO google_auth (id, refresh_token, updated_at) VALUES (1, 'rt-test', '2026-11-15T01:00:00.000Z')",
+    ).run();
+    expect(await gmailStatus()).toEqual({
+      gmail_enabled: true,
+      gmail_connected_at: '2026-11-15T01:00:00.000Z',
+    });
+  });
+
+  it('tells Settings when the client secrets are not set', async () => {
+    await env.DB.exec('DELETE FROM google_auth');
+    const secrets = env as { GOOGLE_CLIENT_SECRET?: string };
+    const secret = secrets.GOOGLE_CLIENT_SECRET;
+    delete secrets.GOOGLE_CLIENT_SECRET;
+    try {
+      expect(await gmailStatus()).toEqual({ gmail_enabled: false, gmail_connected_at: null });
+    } finally {
+      secrets.GOOGLE_CLIENT_SECRET = secret;
+    }
+  });
+
+  it("reports not connected when the table isn't there yet", async () => {
+    await env.DB.exec('ALTER TABLE google_auth RENAME TO google_auth_later');
+    try {
+      expect(await gmailStatus()).toEqual({ gmail_enabled: true, gmail_connected_at: null });
+    } finally {
+      await env.DB.exec('ALTER TABLE google_auth_later RENAME TO google_auth');
+    }
   });
 });
 
