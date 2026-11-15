@@ -12,7 +12,7 @@
 
   "assets": {
     "not_found_handling": "single-page-application",
-    "run_worker_first": ["/api/*", "/mcp/*", "/slack/*"]
+    "run_worker_first": ["/api/*", "/mcp/*", "/slack/*", "/auth/*"]
   },
 
   "observability": { "enabled": true },
@@ -48,6 +48,7 @@
   // Set with `wrangler secret put NAME`; locally from .dev.vars.
   // SLACK_CLIENT_TOKEN and SLACK_D_COOKIE are optional: the create_code_channel MCP tool uses them (a browser session's
   // xoxc token and d cookie, src/lib/code-channel.ts); without them the tool reports that it's off.
+  // GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET are optional too: the Gmail draft tools use them (src/lib/gmail.ts).
   "secrets": {
     "required": ["SLACK_SIGNING_SECRET", "SLACK_BOT_TOKEN"]
   }

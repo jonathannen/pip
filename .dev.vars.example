@@ -4,3 +4,6 @@ SLACK_BOT_TOKEN=xoxb-
 # Optional, for the create_code_channel MCP tool: a Slack browser session's xoxc token and `d` cookie.
 SLACK_CLIENT_TOKEN=
 SLACK_D_COOKIE=
+# Optional, for the Gmail draft tools: a Google OAuth client (see README, Gmail drafts).
+GOOGLE_CLIENT_ID=
+GOOGLE_CLIENT_SECRET=

@@ -17,6 +17,10 @@ const TOOLS: ReadonlyArray<readonly [name: string, what: string]> = [
   ['notes_list', "pip's notes, newest first."],
   ['notes_add', 'Keeps a note.'],
   ['notes_delete', 'Deletes a note by id.'],
+  ['drafts_list', 'Your Gmail drafts: id, recipients, subject and a snippet of each.'],
+  ['drafts_get', 'One Gmail draft in full, by id.'],
+  ['drafts_create', 'Writes a new Gmail draft. Nothing is sent.'],
+  ['drafts_update', "Replaces a Gmail draft's content. Nothing is sent."],
 ];
 
 /** How to point an MCP client at this Worker. */
@@ -74,6 +78,11 @@ function Mcp() {
         <p>
           <code>create_code_channel</code> only works when the Worker has{' '}
           <code>SLACK_CLIENT_TOKEN</code> and <code>SLACK_D_COOKIE</code> set; otherwise it says so.
+        </p>
+        <p>
+          The <code>drafts_*</code> tools need Gmail connected:{' '}
+          <a href="/auth/google">sign in to Google</a> once. pip can read and write drafts; it has
+          no tool that sends.
         </p>
       </section>
 
