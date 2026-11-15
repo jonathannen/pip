@@ -68,6 +68,7 @@ function deployment(): Deployment {
   return {
     repo: PIP_REPO,
     commit: import.meta.env.PIP_COMMIT ?? null,
+    message: import.meta.env.PIP_MESSAGE ?? null,
     branch: import.meta.env.PIP_BRANCH ?? null,
     dirty: import.meta.env.PIP_DIRTY ?? false,
     built_at: import.meta.env.PIP_BUILT_AT ?? null,

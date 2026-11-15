@@ -116,6 +116,23 @@ describe('access', () => {
   });
 });
 
+describe('deployment', () => {
+  it('reports itself as local when it was not built', async () => {
+    const res = await worker.fetch('http://pip/api/deployment');
+    expect(await res.json()).toEqual({
+      repo: 'jonathannen/pip',
+      commit: null,
+      message: null,
+      branch: null,
+      dirty: false,
+      built_at: null,
+      version_id: 'local',
+      version_tag: null,
+      deployed_at: null,
+    });
+  });
+});
+
 describe('notes', () => {
   it('adds, lists and deletes a note', async () => {
     const created = await worker.fetch('http://pip/api/notes', {

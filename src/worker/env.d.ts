@@ -19,6 +19,8 @@ declare global {
 interface ImportMetaEnv {
   /** The commit pip was built from. */
   readonly PIP_COMMIT?: string | null;
+  /** That commit's message: its subject, or a merged pull request's title and number. */
+  readonly PIP_MESSAGE?: string | null;
   /** The branch pip was built from. */
   readonly PIP_BRANCH?: string | null;
   /** Whether the checkout had uncommitted changes. */

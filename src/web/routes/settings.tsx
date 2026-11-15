@@ -108,7 +108,7 @@ function Settings() {
   );
 }
 
-/** The build of pip serving this page: its commit, branch, Worker version and when it went up. */
+/** The build serving this page: its commit, message, branch, Worker version and when it went up. */
 function DeployedSection() {
   const [deployment, setDeployment] = useState<Deployment>();
   const [error, setError] = useState<string>();
@@ -151,6 +151,12 @@ function DeployedSection() {
             )}
             {deployment.dirty && <span className={styles.muted}>with uncommitted changes</span>}
           </dd>
+          {deployment.message && (
+            <>
+              <dt>Message</dt>
+              <dd>{deployment.message}</dd>
+            </>
+          )}
           {deployment.branch && (
             <>
               <dt>Branch</dt>
