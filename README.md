@@ -7,11 +7,12 @@ Jon's personal bot: a website, an MCP server and a Slack bot on one Cloudflare W
 | `/`, `/code`, `/mcp`, `/settings` | React SPA (`src/web/`): notes, a prompt that launches a code channel, how to connect an MCP client, settings with the deployed build | Cloudflare Access |
 | `/api/*` | JSON API for the SPA (`src/worker/index.ts`) | Cloudflare Access |
 | `/mcp/<name>` | MCP servers (`src/worker/mcp/`) | Cloudflare Access (user or service token) |
+| `/auth/google` | One-time Google sign-in that connects Gmail for the draft tools (`src/worker/google.ts`) | Cloudflare Access |
 | `/slack/events` | Slack Events API, slash commands `/pip`, `/cc` and `/sitrep` (`src/worker/slack.ts`) | Slack request signature |
 
 The Worker also verifies the `Cf-Access-Jwt-Assertion` header on `/api` and `/mcp`, and is only reachable on its custom domain (`workers_dev` and `preview_urls` are off).
 
-What it does so far is deliberately small: **notes**, short things kept in D1 from the website, the `notes_*` MCP tools or a Slack DM (`note <text>`, `notes`). **Code channels** (`src/lib/code-channel.ts`) start a Slack code channel on a prompt, from the `/code` page (`POST /api/code-channel`), the `create_code_channel` MCP tool or `/cc` in Slack; the options and the result are the same on all three (`src/shared/api.ts`). Settings shows the build serving the page (`GET /api/deployment`): the commit, branch and build time that `vite.config.ts` defines into the bundle at `vite build` (from Workers Builds' env or the checkout's git), plus the Worker version from `CF_VERSION_METADATA`. The site is an installable PWA (`public/manifest.webmanifest`, the icons next to it, and `public/sw.js`, which only caches the hashed build assets; pages and `/api` always hit the network so Access and data stay fresh). Everything else is the shape to hang things off: Access, D1 with migrations, a daily cron, the MCP handler, the Slack app, tests.
+What it does so far is deliberately small: **notes**, short things kept in D1 from the website, the `notes_*` MCP tools or a Slack DM (`note <text>`, `notes`). **Code channels** (`src/lib/code-channel.ts`) start a Slack code channel on a prompt, from the `/code` page (`POST /api/code-channel`), the `create_code_channel` MCP tool or `/cc` in Slack; the options and the result are the same on all three (`src/shared/api.ts`). **Gmail drafts** (`src/lib/gmail.ts`): the `drafts_*` MCP tools list, read, create and update drafts in your Gmail; nothing in pip sends mail. Settings shows the build serving the page (`GET /api/deployment`): the commit, branch and build time that `vite.config.ts` defines into the bundle at `vite build` (from Workers Builds' env or the checkout's git), plus the Worker version from `CF_VERSION_METADATA`. The site is an installable PWA (`public/manifest.webmanifest`, the icons next to it, and `public/sw.js`, which only caches the hashed build assets; pages and `/api` always hit the network so Access and data stay fresh). Everything else is the shape to hang things off: Access, D1 with migrations, a daily cron, the MCP handler, the Slack app, tests.
 
 ## Develop
 
@@ -35,7 +36,7 @@ Wrangler only loads `secrets.required` names from `.dev.vars`, so in `pnpm dev` 
 
 1. Once: `pnpm wrangler d1 create pip` and put the printed `database_id` in `d1_databases` in `wrangler.jsonc`.
 2. Set `ACCESS_TEAM_DOMAIN` / `ACCESS_AUD` in `vars` in `wrangler.jsonc` (Zero Trust, below).
-3. Secrets: `pnpm wrangler secret put SLACK_SIGNING_SECRET` and `SLACK_BOT_TOKEN` (`secrets.required`; a deploy fails without them). Optionally `SLACK_CLIENT_TOKEN` and `SLACK_D_COOKIE` for `create_code_channel`.
+3. Secrets: `pnpm wrangler secret put SLACK_SIGNING_SECRET` and `SLACK_BOT_TOKEN` (`secrets.required`; a deploy fails without them). Optionally `SLACK_CLIENT_TOKEN` and `SLACK_D_COOKIE` for `create_code_channel`, and `GOOGLE_CLIENT_ID` and `GOOGLE_CLIENT_SECRET` for Gmail drafts (below).
 4. `pnpm run deploy` builds, applies pending D1 migrations, then deploys (plain `pnpm deploy` is a pnpm built-in, not this script).
 
 `pnpm run migrate` applies pending D1 migrations to the remote database; `pnpm run release` runs `migrate` then `wrangler deploy` without building. The custom domain `pip.jonathannen.com` is created on first deploy; `jonathannen.com` must be a zone in the account wrangler is logged into.
@@ -55,7 +56,7 @@ claude mcp add --transport http pip https://pip.jonathannen.com/mcp/core \
   --header "CF-Access-Client-Id: $ID" --header "CF-Access-Client-Secret: $SECRET"
 ```
 
-Tools on `/mcp/core`: `whoami`, `hello`, `create_code_channel`, `notes_list`, `notes_add`, `notes_delete`. Add a server by adding a factory to `handlers` in `src/worker/mcp/index.ts`.
+Tools on `/mcp/core`: `whoami`, `hello`, `create_code_channel`, `notes_list`, `notes_add`, `notes_delete`, `drafts_list`, `drafts_get`, `drafts_create`, `drafts_update`. Add a server by adding a factory to `handlers` in `src/worker/mcp/index.ts`.
 
 ### Slack
 
@@ -68,6 +69,21 @@ Create an app named **pip** with the bot scopes `app_mentions:read`, `chat:write
 `/sitrep` asks every channel in your sidebar section named "Scheduled" for its status: it posts "give me the current status - things in flight, blockers, things that need action. Be concise, use bullets" to each as you, not as pip. The channels are read from the sidebar when it runs, so moving a channel in or out of the section is all the setup there is. Add it as a third slash command with the same Request URL. It acks at once and then says which channels it pinged and which failed. It uses the same browser session as `create_code_channel`, so it needs `SLACK_CLIENT_TOKEN` / `SLACK_D_COOKIE`.
 
 `create_code_channel` uses Slack's undocumented web-client API with a browser session: `SLACK_CLIENT_TOKEN` is the `xoxc-` token and `SLACK_D_COOKIE` the `d` cookie, both copied from app.slack.com. `SLACK_WORKSPACE`, `SLACK_TEAM_ID` and `SLACK_CODE_APP_ID` in `vars` say where the channel is made.
+
+### Gmail drafts
+
+`drafts_list`, `drafts_get`, `drafts_create` and `drafts_update` read and write the drafts in your Gmail, so an MCP client can write an email for you to look over and send yourself. There is no tool that sends or deletes. `drafts_update` replaces a draft with plain text, so it drops formatting and attachments. The only scope asked for is `https://www.googleapis.com/auth/gmail.compose`, the narrowest one that covers all four calls; Google has no drafts-only scope, so not sending is down to pip having no code that does.
+
+Once:
+
+1. In the [Google Cloud console](https://console.cloud.google.com/), pick or create a project and enable the **Gmail API** (APIs & Services → Library).
+2. Under **Google Auth Platform**, fill in Branding, then Audience: **Internal** if the project is in your Google Workspace organisation. Otherwise **External**, and press **Publish app**: left in Testing, Google expires the sign-in after seven days. A personal app needs no verification; you click through an "unverified app" warning when signing in.
+3. Under **Clients**, **Create client** → **Web application**, with the authorised redirect URI `https://pip.jonathannen.com/auth/google/callback`. Keep the client ID and secret.
+4. `pnpm wrangler secret put GOOGLE_CLIENT_ID` and `pnpm wrangler secret put GOOGLE_CLIENT_SECRET`.
+5. Deploy with `pnpm run deploy`, which applies the migration that adds the `google_auth` table (or `pnpm run migrate` if the deploy doesn't run it).
+6. Open `https://pip.jonathannen.com/auth/google` and approve. The refresh token is kept in D1; do it again if Google ever revokes it (the tools say when Gmail isn't connected).
+
+Both secrets are optional: without them the tools and `/auth/google` say Gmail is off. Like the other optional secrets, `pnpm dev` doesn't load them from `.dev.vars`.
 
 ### Cron
 

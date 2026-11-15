@@ -6,6 +6,10 @@ declare global {
       SLACK_CLIENT_TOKEN?: string;
       /** The matching `d` cookie. */
       SLACK_D_COOKIE?: string;
+      /** A Google OAuth client (Web application), for the Gmail draft tools (src/lib/gmail.ts). */
+      GOOGLE_CLIENT_ID?: string;
+      /** Its client secret. */
+      GOOGLE_CLIENT_SECRET?: string;
     }
   }
 }

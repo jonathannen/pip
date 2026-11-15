@@ -5,6 +5,7 @@ import type { CodeChannelRequest, CodeChannelResult, Deployment, Me, Note } from
 import { CODE_MODELS } from '../shared/api';
 import type { Identity } from './access';
 import { requireAccess } from './access';
+import { google } from './google';
 import { mcp } from './mcp';
 import { addNote, deleteNote, listNotes, parseNoteBody } from './notes';
 import { slack } from './slack';
@@ -100,6 +101,7 @@ function parseCodeChannelRequest(json: unknown): CodeChannelRequest | undefined 
 const app = new Hono<{ Bindings: Env }>()
   .route('/api', api)
   .route('/mcp', mcp)
+  .route('/auth/google', google)
   // Not behind Access (Slack can't sign in); authenticated by Slack's request signature.
   .post('/slack/events', (c) => slack(c.env).run(c.req.raw, c.executionCtx));
 

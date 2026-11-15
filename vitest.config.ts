@@ -18,6 +18,8 @@ export default defineConfig({
           SLACK_BOT_TOKEN: 'xoxb-test',
           SLACK_CLIENT_TOKEN: 'xoxc-test',
           SLACK_D_COOKIE: 'xoxd-test',
+          GOOGLE_CLIENT_ID: 'google-client-id',
+          GOOGLE_CLIENT_SECRET: 'google-client-secret',
           TEST_MIGRATIONS: migrations,
         },
       },
