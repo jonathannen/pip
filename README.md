@@ -77,11 +77,13 @@ Create an app named **pip** with the bot scopes `app_mentions:read`, `chat:write
 Once:
 
 1. In the [Google Cloud console](https://console.cloud.google.com/), pick or create a project and enable the **Gmail API** (APIs & Services → Library).
-2. Under **Google Auth Platform**, fill in Branding, then Audience: **Internal** if the project is in your Google Workspace organisation. Otherwise **External**, and press **Publish app**: left in Testing, Google expires the sign-in after seven days. A personal app needs no verification; you click through an "unverified app" warning when signing in.
+2. Under **Google Auth Platform**, fill in Branding, then set Audience to **Internal**, so only accounts in your Google Workspace organisation can sign in to the app.
 3. Under **Clients**, **Create client** → **Web application**, with the authorised redirect URI `https://pip.jonathannen.com/auth/google/callback`. Keep the client ID and secret.
 4. `pnpm wrangler secret put GOOGLE_CLIENT_ID` and `pnpm wrangler secret put GOOGLE_CLIENT_SECRET`.
 5. Deploy with `pnpm run deploy`, which applies the migration that adds the `google_auth` table (or `pnpm run migrate` if the deploy doesn't run it).
 6. Open `https://pip.jonathannen.com/auth/google` and approve. The refresh token is kept in D1; do it again if Google ever revokes it (the tools say when Gmail isn't connected).
+
+Internal needs the Google Cloud project to belong to a Google Workspace organisation, and the mailbox you connect to be in that organisation. A project owned by a personal Google account can only be **External**, which is wider: any Google account can reach the app's consent screen (pip's callback still refuses anyone but you, behind Access and the state check), and while an External app is in Testing, Google expires the refresh token after seven days, so the sign-in has to be repeated weekly unless you publish the app. Don't use External if Internal is available.
 
 Both secrets are optional: without them the tools and `/auth/google` say Gmail is off. Like the other optional secrets, `pnpm dev` doesn't load them from `.dev.vars`.
 
