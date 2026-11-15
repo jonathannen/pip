@@ -26,6 +26,8 @@ export interface Deployment {
   readonly repo: string;
   /** The commit it was built from; null when it wasn't built (`vite dev`). */
   readonly commit: string | null;
+  /** Its message: the subject, or a merged pull request's title and number; null when unknown. */
+  readonly message: string | null;
   /** The branch it was built from; null when unknown. */
   readonly branch: string | null;
   /** Whether the checkout had uncommitted changes when built. */
