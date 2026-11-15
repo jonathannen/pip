@@ -3,6 +3,10 @@ export interface Me {
   readonly email: string;
   /** Whether SLACK_CLIENT_TOKEN and SLACK_D_COOKIE are set, so code channels can be created. */
   readonly code_channels_enabled: boolean;
+  /** Whether GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET are set, so Gmail can be connected. */
+  readonly gmail_enabled: boolean;
+  /** When Gmail was connected at /auth/google, ISO 8601; null when it isn't. */
+  readonly gmail_connected_at: string | null;
   /** True when an Access service token (an agent) authenticated, rather than a person. */
   readonly service_token: boolean;
   /** The Worker version serving the request (`CF_VERSION_METADATA`); "local" in `vite dev`. */

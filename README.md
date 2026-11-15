@@ -81,9 +81,9 @@ Once:
 3. Under **Clients**, **Create client** → **Web application**, with the authorised redirect URI `https://pip.jonathannen.com/auth/google/callback`. Keep the client ID and secret.
 4. `pnpm wrangler secret put GOOGLE_CLIENT_ID` and `pnpm wrangler secret put GOOGLE_CLIENT_SECRET`.
 5. Deploy with `pnpm run deploy`, which applies the migration that adds the `google_auth` table (or `pnpm run migrate` if the deploy doesn't run it).
-6. Open `https://pip.jonathannen.com/auth/google` and approve. The refresh token is kept in D1; do it again if Google ever revokes it (the tools say when Gmail isn't connected).
+6. On pip's Settings page, press **Connect Gmail** on the Gmail card (it goes to `/auth/google`) and approve; you land back on Settings. The refresh token is kept in D1; press **Reconnect** if Google ever revokes it (the tools say when Gmail isn't connected).
 
-Both secrets are optional: without them the tools and `/auth/google` say Gmail is off. Like the other optional secrets, `pnpm dev` doesn't load them from `.dev.vars`.
+Settings' Gmail card shows whether the two secrets are set and when Gmail was connected (`gmail_enabled` and `gmail_connected_at` on `GET /api/me`). Both secrets are optional: without them the tools and `/auth/google` say Gmail is off. Like the other optional secrets, `pnpm dev` doesn't load them from `.dev.vars`.
 
 ### Cron
 

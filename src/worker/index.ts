@@ -1,22 +1,25 @@
 import { env } from 'cloudflare:workers';
 import { Hono } from 'hono';
 import { codeChannelsEnabled, launchCodeChannel } from '../lib/code-channel';
+import { gmailEnabled } from '../lib/gmail';
 import type { CodeChannelRequest, CodeChannelResult, Deployment, Me, Note } from '../shared/api';
 import { CODE_MODELS } from '../shared/api';
 import type { Identity } from './access';
 import { requireAccess } from './access';
-import { google } from './google';
+import { gmailConnectedAt, google } from './google';
 import { mcp } from './mcp';
 import { addNote, deleteNote, listNotes, parseNoteBody } from './notes';
 import { slack } from './slack';
 
 const api = new Hono<{ Variables: { identity: Identity } }>()
   .use(requireAccess)
-  .get('/me', (c) => {
+  .get('/me', async (c) => {
     const { email, serviceToken } = c.get('identity');
     return c.json<Me>({
       email,
       code_channels_enabled: codeChannelsEnabled(env),
+      gmail_enabled: gmailEnabled(env),
+      gmail_connected_at: await gmailConnectedAt(),
       service_token: serviceToken,
       version: import.meta.env.DEV ? 'local' : env.CF_VERSION_METADATA.id,
     });
