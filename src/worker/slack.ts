@@ -144,7 +144,7 @@ export function slack(env: Env) {
 }
 
 const ccUsage = (say: string) =>
-  `Say \`${say} <prompt>\` to start a code channel on the prompt. Begin with \`public:\` for a public channel, or \`raw:\` to skip the "In pynhq/pyn repo" preamble.`;
+  `Say \`${say} <prompt>\` to start a code channel on the prompt. Begin with \`public:\` for a public channel.`;
 export const CC_USAGE = ccUsage('/cc');
 export const CC_MENTION_USAGE = ccUsage('@pip cc');
 const CC_OFF = 'Code channels are off: SLACK_CLIENT_TOKEN / SLACK_D_COOKIE are not set.';
@@ -187,9 +187,10 @@ export function mayMentionCc(
 }
 
 /**
- * `/cc` text: optional `public:` and `raw:` prefixes, then the prompt. Replies with a link to the
- * channel, or what went wrong; with `usage` when there is no prompt. `echo` says whether the reply
- * repeats the prompt.
+ * `/cc` text: an optional `public:` prefix, then the prompt, sent as it is with no preamble. A
+ * `raw:` prefix, which used to skip the preamble, is still taken off and does nothing. Replies with
+ * a link to the channel, or what went wrong; with `usage` when there is no prompt. `echo` says
+ * whether the reply repeats the prompt.
  */
 export async function launchFromSlack(
   env: Parameters<typeof launchCodeChannel>[0],
@@ -198,7 +199,6 @@ export async function launchFromSlack(
 ): Promise<string> {
   let prompt = text.trim();
   let isPrivate = true;
-  let addPreamble = true;
   for (;;) {
     const match = /^(public|raw):\s*/i.exec(prompt);
     if (!match) {
@@ -206,8 +206,6 @@ export async function launchFromSlack(
     }
     if (match[1]?.toLowerCase() === 'public') {
       isPrivate = false;
-    } else {
-      addPreamble = false;
     }
     prompt = prompt.slice(match[0].length);
   }
@@ -218,7 +216,7 @@ export async function launchFromSlack(
     const result = await launchCodeChannel(env, {
       prompt,
       is_private: isPrivate,
-      add_preamble: addPreamble,
+      add_preamble: false,
     });
     const where = result.channel_id ? `<#${result.channel_id}>` : 'a code channel';
     return `:rocket: Started ${where} (${result.model})${echo ? `: ${result.prompt}` : '.'}`;

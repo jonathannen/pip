@@ -269,6 +269,30 @@ describe('code channel', () => {
       fetchSpy.mockRestore();
     }
   });
+
+  it('sends the /cc prompt with no preamble', async () => {
+    const { launchFromSlack } = await import('../src/worker/slack');
+    const calls: unknown[] = [];
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockImplementation(async (_url, init) => {
+      const form = init?.body as FormData;
+      calls.push(Object.fromEntries(form.entries()));
+      return Response.json({ ok: true, channel_id: 'C0123ABC' });
+    });
+    try {
+      const text = await launchFromSlack(
+        { SLACK_CLIENT_TOKEN: 'xoxc-test', SLACK_D_COOKIE: 'xoxd-test' },
+        'fix the login bug',
+      );
+      expect(text).toBe(`:rocket: Started <#C0123ABC> (${DEFAULT_CODE_MODEL}): fix the login bug`);
+      expect(calls).toHaveLength(1);
+      const sent = calls[0] as { is_private: string; blocks: string };
+      expect(sent.is_private).toBe('true');
+      expect(sent.blocks).toContain('"fix the login bug"');
+      expect(sent.blocks).not.toContain('pynhq/pyn');
+    } finally {
+      fetchSpy.mockRestore();
+    }
+  });
 });
 
 describe('sitrep', () => {
@@ -812,9 +836,8 @@ describe('cc mention', () => {
     });
     expect(channels).toHaveLength(1);
     expect(channels[0]?.is_private).toBe('true');
-    expect(channels[0]?.blocks).toContain(
-      '"In pynhq/pyn repo fix the build\\nand tell <@U0SOMEONE>"',
-    );
+    expect(channels[0]?.blocks).toContain('"fix the build\\nand tell <@U0SOMEONE>"');
+    expect(channels[0]?.blocks).not.toContain('pynhq/pyn');
     // The answer doesn't repeat the prompt, so it pings no one the prompt mentions.
     expect(posts).toEqual([
       {
