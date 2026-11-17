@@ -4,13 +4,47 @@ import { addNote, listNotes, parseNoteBody } from './notes';
 
 /**
  * Slack signs every request; slack-edge rejects anything unsigned. Only the owner gets answers;
- * everyone else gets nothing.
+ * everyone else gets nothing. The one exception is `@pip cc`, which the bots named in
+ * SLACK_CC_BOT_IDS may also say.
  */
 export function slack(env: Env) {
   const app = new SlackApp({ env, routes: { events: '/slack/events' } });
   return (
     app
-      .event('app_mention', async ({ context, payload }) => {
+      .event('app_mention', async ({ context, payload, retryNum }) => {
+        // `@pip cc <prompt>` in a channel pip is in starts a code channel on the prompt, like
+        // `/cc`, and answers in the thread. The answer leaves the prompt out: the mention above it
+        // has it, and said again by pip it would ping whoever it mentions a second time.
+        const prompt = parseCcMention(payload.text, context.botUserId);
+        if (prompt !== undefined) {
+          // slack-edge already drops pip's own events; said again here so that no allowlist entry
+          // can have pip start channels off its own messages.
+          if (payload.user === context.botUserId || payload.bot_id === context.botId) {
+            return;
+          }
+          if (!mayMentionCc(env, payload)) {
+            console.warn('pip: cc mention from someone not allowed', {
+              user: payload.user,
+              bot_id: payload.bot_id,
+            });
+            return;
+          }
+          // Slack sends an event again when the first delivery wasn't answered in time. Starting a
+          // channel can't be undone, so a redelivery never starts one: at most one per mention.
+          if (retryNum) {
+            return;
+          }
+          let text: string;
+          if (prompt === '') {
+            text = CC_MENTION_USAGE;
+          } else if (codeChannelsEnabled(env)) {
+            text = await launchFromSlack(env, prompt, { usage: CC_MENTION_USAGE, echo: false });
+          } else {
+            text = CC_OFF;
+          }
+          await context.say({ text, thread_ts: payload.thread_ts ?? payload.ts });
+          return;
+        }
         if (payload.user !== env.SLACK_OWNER_USER_ID) {
           return;
         }
@@ -66,10 +100,7 @@ export function slack(env: Env) {
             return { response_type: 'ephemeral', text: CC_USAGE };
           }
           if (!codeChannelsEnabled(env)) {
-            return {
-              response_type: 'ephemeral',
-              text: 'Code channels are off: SLACK_CLIENT_TOKEN / SLACK_D_COOKIE are not set.',
-            };
+            return { response_type: 'ephemeral', text: CC_OFF };
           }
           return { response_type: 'ephemeral', text: ':hourglass: Starting a code channel…' };
         },
@@ -112,16 +143,58 @@ export function slack(env: Env) {
   );
 }
 
-export const CC_USAGE =
-  'Say `/cc <prompt>` to start a code channel on the prompt. Begin with `public:` for a public channel, or `raw:` to skip the "In pynhq/pyn repo" preamble.';
+const ccUsage = (say: string) =>
+  `Say \`${say} <prompt>\` to start a code channel on the prompt. Begin with \`public:\` for a public channel, or \`raw:\` to skip the "In pynhq/pyn repo" preamble.`;
+export const CC_USAGE = ccUsage('/cc');
+export const CC_MENTION_USAGE = ccUsage('@pip cc');
+const CC_OFF = 'Code channels are off: SLACK_CLIENT_TOKEN / SLACK_D_COOKIE are not set.';
+
+/**
+ * The prompt in `@pip cc <prompt>`: the mention of pip first, then `cc` in either case, then the
+ * rest, newlines kept; empty when nothing follows `cc`. Undefined when the message isn't that.
+ */
+export function parseCcMention(text: string, botUserId: string | undefined): string | undefined {
+  const match = /^\s*<@([A-Z0-9]+)(?:\|[^>]*)?>\s*cc(?:\s+([\s\S]*))?$/i.exec(text);
+  if (!match || botUserId === undefined || match[1] !== botUserId) {
+    return undefined;
+  }
+  // An event's text has links as `<url>` or `<url|label>`, and `&`, `<` and `>` escaped.
+  return (match[2] ?? '')
+    .replace(/<(https?:\/\/[^|>\s]+)(?:\|[^>]*)?>/g, '$1')
+    .replaceAll('&lt;', '<')
+    .replaceAll('&gt;', '>')
+    .replaceAll('&amp;', '&')
+    .trim();
+}
+
+/**
+ * Who may say `@pip cc`: the owner, or a bot named in SLACK_CC_BOT_IDS (comma-separated member IDs
+ * or bot IDs). A bot's message has a `bot_id`, and a `user` too unless it's from a classic app.
+ * With the list empty no bot may.
+ */
+export function mayMentionCc(
+  env: { readonly SLACK_OWNER_USER_ID: string; readonly SLACK_CC_BOT_IDS?: string | undefined },
+  sender: { readonly user?: string | undefined; readonly bot_id?: string | undefined },
+): boolean {
+  if (sender.user && sender.user === env.SLACK_OWNER_USER_ID) {
+    return true;
+  }
+  if (!sender.bot_id) {
+    return false;
+  }
+  const allowed = (env.SLACK_CC_BOT_IDS ?? '').split(',').map((id) => id.trim());
+  return [sender.bot_id, sender.user].some((id) => id && allowed.includes(id));
+}
 
 /**
  * `/cc` text: optional `public:` and `raw:` prefixes, then the prompt. Replies with a link to the
- * channel, or what went wrong.
+ * channel, or what went wrong; with `usage` when there is no prompt. `echo` says whether the reply
+ * repeats the prompt.
  */
 export async function launchFromSlack(
   env: Parameters<typeof launchCodeChannel>[0],
   text: string,
+  { usage = CC_USAGE, echo = true }: { usage?: string; echo?: boolean } = {},
 ): Promise<string> {
   let prompt = text.trim();
   let isPrivate = true;
@@ -139,7 +212,7 @@ export async function launchFromSlack(
     prompt = prompt.slice(match[0].length);
   }
   if (prompt === '') {
-    return CC_USAGE;
+    return usage;
   }
   try {
     const result = await launchCodeChannel(env, {
@@ -148,7 +221,7 @@ export async function launchFromSlack(
       add_preamble: addPreamble,
     });
     const where = result.channel_id ? `<#${result.channel_id}>` : 'a code channel';
-    return `:rocket: Started ${where} (${result.model}): ${result.prompt}`;
+    return `:rocket: Started ${where} (${result.model})${echo ? `: ${result.prompt}` : '.'}`;
   } catch (error) {
     return `:x: Couldn't start the code channel: ${error instanceof Error ? error.message : String(error)}`;
   }

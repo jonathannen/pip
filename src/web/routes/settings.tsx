@@ -41,7 +41,8 @@ function Settings() {
             <h2>Code channels</h2>
             <p>
               Start a Slack code channel on a prompt from the <Link to="/code">Code</Link> page, the{' '}
-              <code>create_code_channel</code> MCP tool or <code>/cc</code> in Slack.
+              <code>create_code_channel</code> MCP tool, or <code>/cc</code> or <code>@pip cc</code>{' '}
+              in Slack.
             </p>
           </div>
           <span className={styles.status} data-off={!me.code_channels_enabled || undefined}>
@@ -147,9 +148,10 @@ function Settings() {
             <h2>Slack</h2>
             <p>
               Mention <b>@pip</b> or DM it (<code>note …</code>, <code>notes</code>);{' '}
-              <code>/pip</code> does the same, <code>/cc</code> starts a code channel and{' '}
-              <code>/sitrep</code> asks the channels in your Scheduled sidebar section for their
-              status. It only answers its owner.
+              <code>/pip</code> does the same, <code>/cc</code> or <code>@pip cc …</code> starts a
+              code channel and <code>/sitrep</code> asks the channels in your Scheduled sidebar
+              section for their status. It only answers its owner, and for <code>@pip cc</code> the
+              bots in <code>SLACK_CC_BOT_IDS</code>.
             </p>
           </div>
         </div>
