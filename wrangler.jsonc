@@ -39,6 +39,9 @@
     "ACCESS_AUD": "9b8badaa9ce8e702278f82fad56bee92b9eab6781dd8e47f09e021d1330e8255",
     // The Slack member ID the bot answers; everyone else is ignored.
     "SLACK_OWNER_USER_ID": "UH0UN1VT4",
+    // Bots that may also say `@pip cc <prompt>`: their member IDs (U…) or bot IDs (B…), comma-separated.
+    // Empty: no bot may. Whoever can get a listed bot to post can start a code channel.
+    "SLACK_CC_BOT_IDS": "",
     // The Slack workspace the code channel tool creates channels in (src/lib/code-channel.ts).
     "SLACK_WORKSPACE": "pynhq",
     "SLACK_TEAM_ID": "TH0RA7683",

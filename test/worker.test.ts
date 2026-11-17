@@ -1,6 +1,8 @@
+import { createExecutionContext, waitOnExecutionContext } from 'cloudflare:test';
 import { env, exports } from 'cloudflare:workers';
 import { describe, expect, it, vi } from 'vitest';
 import type { Me } from '../src/shared/api';
+import { DEFAULT_CODE_MODEL } from '../src/shared/api';
 
 const worker = exports.default;
 
@@ -24,6 +26,64 @@ async function slackSignature(secret: string, timestamp: string, body: string): 
     new TextEncoder().encode(`v0:${timestamp}:${body}`),
   );
   return `v0=${new Uint8Array(mac).toHex()}`;
+}
+
+/**
+ * Sends pip an `app_mention` signed as Slack signs it and waits for everything it does about it.
+ * pip is U0PIP (bot B0PIP); `bots` is SLACK_CC_BOT_IDS. Gives the code channels started and the
+ * messages posted.
+ */
+async function mention(
+  event: Record<string, unknown>,
+  { bots = '', retry = false }: { bots?: string; retry?: boolean } = {},
+) {
+  const { slack } = await import('../src/worker/slack');
+  const channels: Record<string, string>[] = [];
+  const posts: Record<string, string>[] = [];
+  const fetchSpy = vi.spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => {
+    const request = new Request(input, init);
+    const form = Object.fromEntries(await request.formData()) as Record<string, string>;
+    switch (request.url) {
+      case 'https://slack.com/api/auth.test':
+        return Response.json({ ok: true, team_id: 'T0PIP', user_id: 'U0PIP', bot_id: 'B0PIP' });
+      case 'https://slack.com/api/chat.postMessage':
+        posts.push(form);
+        return Response.json({ ok: true });
+      case 'https://pynhq.slack.com/api/client.codeChannels.create':
+        channels.push(form);
+        return Response.json({ ok: true, channel_id: 'C0NEW' });
+      default:
+        throw new Error(`unexpected fetch: ${request.url}`);
+    }
+  });
+  try {
+    const body = JSON.stringify({
+      type: 'event_callback',
+      team_id: 'T0PIP',
+      event_id: 'Ev0TEST',
+      event: { type: 'app_mention', channel: 'C0HERE', ts: '1700000000.000100', ...event },
+    });
+    const timestamp = String(Math.floor(Date.now() / 1000));
+    const ctx = createExecutionContext();
+    const res = await slack({ ...env, SLACK_CC_BOT_IDS: bots }).run(
+      new Request('http://pip/slack/events', {
+        method: 'POST',
+        headers: {
+          'content-type': 'application/json',
+          'x-slack-request-timestamp': timestamp,
+          'x-slack-signature': await slackSignature('test-signing-secret', timestamp, body),
+          ...(retry ? { 'x-slack-retry-num': '1', 'x-slack-retry-reason': 'http_timeout' } : {}),
+        },
+        body,
+      }),
+      ctx,
+    );
+    expect(res.status).toBe(200);
+    await waitOnExecutionContext(ctx);
+    return { channels, posts };
+  } finally {
+    fetchSpy.mockRestore();
+  }
 }
 
 /** Stands in for Google: answers the token endpoint and Gmail, and records what was asked. */
@@ -701,5 +761,165 @@ describe('slack', () => {
       body,
     });
     expect(await res.text()).toBe('abc123');
+  });
+});
+
+describe('cc mention', () => {
+  const owner = env.SLACK_OWNER_USER_ID;
+
+  it('reads the prompt after the mention and cc', async () => {
+    const { parseCcMention } = await import('../src/worker/slack');
+    expect(parseCcMention('<@U0PIP> cc fix the build', 'U0PIP')).toBe('fix the build');
+    expect(parseCcMention('  <@U0PIP|pip>   CC  fix\nthe build\n', 'U0PIP')).toBe('fix\nthe build');
+    expect(parseCcMention('<@U0PIP> cc', 'U0PIP')).toBe('');
+    expect(parseCcMention('<@U0PIP> cc   ', 'U0PIP')).toBe('');
+    // Slack's escaping, undone: links and `&`, `<`, `>`.
+    expect(
+      parseCcMention('<@U0PIP> cc a &amp;&amp; b &lt;div&gt; <https://x.test/1|x.test/1>', 'U0PIP'),
+    ).toBe('a && b <div> https://x.test/1');
+    // Not the command: no `cc` word, `cc` not straight after the mention, or someone else first.
+    expect(parseCcMention('<@U0PIP> ccc fix the build', 'U0PIP')).toBeUndefined();
+    expect(parseCcMention('<@U0PIP> hello', 'U0PIP')).toBeUndefined();
+    expect(parseCcMention('hey <@U0PIP> cc fix the build', 'U0PIP')).toBeUndefined();
+    expect(parseCcMention('<@U0OTHER> cc <@U0PIP> fix the build', 'U0PIP')).toBeUndefined();
+    expect(parseCcMention('<@U0PIP> cc fix the build', undefined)).toBeUndefined();
+  });
+
+  it('allows the owner and listed bots only', async () => {
+    const { mayMentionCc } = await import('../src/worker/slack');
+    const allow = (bots: string | undefined, sender: { user?: string; bot_id?: string }) =>
+      mayMentionCc({ SLACK_OWNER_USER_ID: 'U0OWNER', SLACK_CC_BOT_IDS: bots }, sender);
+    expect(allow('', { user: 'U0OWNER' })).toBe(true);
+    expect(allow('', { user: 'U0SOMEONE' })).toBe(false);
+    // The list is for bots: a person's ID in it does nothing.
+    expect(allow('U0SOMEONE', { user: 'U0SOMEONE' })).toBe(false);
+    expect(allow('U0BOT', { user: 'U0BOT', bot_id: 'B0BOT' })).toBe(true);
+    expect(allow(' U0X , B0BOT ', { user: 'U0BOT', bot_id: 'B0BOT' })).toBe(true);
+    // A classic app's message has no user.
+    expect(allow('B0BOT', { bot_id: 'B0BOT' })).toBe(true);
+    expect(allow('U0X', { user: 'U0BOT', bot_id: 'B0BOT' })).toBe(false);
+    expect(allow('', { user: 'U0BOT', bot_id: 'B0BOT' })).toBe(false);
+    expect(allow(undefined, { user: 'U0BOT', bot_id: 'B0BOT' })).toBe(false);
+    expect(allow('', { bot_id: '' })).toBe(false);
+    expect(allow(',', { user: '', bot_id: '' })).toBe(false);
+    expect(allow('', {})).toBe(false);
+  });
+
+  it('starts a code channel for the owner and answers in the thread', async () => {
+    const { channels, posts } = await mention({
+      user: owner,
+      text: '<@U0PIP> cc fix the build\nand tell <@U0SOMEONE>',
+    });
+    expect(channels).toHaveLength(1);
+    expect(channels[0]?.is_private).toBe('true');
+    expect(channels[0]?.blocks).toContain(
+      '"In pynhq/pyn repo fix the build\\nand tell <@U0SOMEONE>"',
+    );
+    // The answer doesn't repeat the prompt, so it pings no one the prompt mentions.
+    expect(posts).toEqual([
+      {
+        channel: 'C0HERE',
+        thread_ts: '1700000000.000100',
+        text: `:rocket: Started <#C0NEW> (${DEFAULT_CODE_MODEL}).`,
+      },
+    ]);
+  });
+
+  it('takes the /cc prefixes, and answers in the thread the mention is in', async () => {
+    const { channels, posts } = await mention({
+      user: owner,
+      text: '<@U0PIP> CC public: raw: ship it',
+      thread_ts: '1690000000.000001',
+    });
+    expect(channels).toHaveLength(1);
+    expect(channels[0]?.is_private).toBe('false');
+    expect(channels[0]?.blocks).toContain('"ship it"');
+    expect(posts[0]?.thread_ts).toBe('1690000000.000001');
+  });
+
+  it('starts a code channel for a listed bot', async () => {
+    const event = { user: 'U0BOT', bot_id: 'B0BOT', text: '<@U0PIP> cc fix the build' };
+    for (const bots of ['U0BOT', 'B0BOT,U0ELSE']) {
+      const { channels, posts } = await mention(event, { bots });
+      expect(channels).toHaveLength(1);
+      expect(posts).toHaveLength(1);
+      expect(posts[0]?.text).toContain(':rocket: Started <#C0NEW>');
+    }
+    // A classic app's bot_message has no user.
+    const classic = { subtype: 'bot_message', bot_id: 'B0BOT', text: '<@U0PIP> cc fix the build' };
+    expect((await mention(classic, { bots: 'B0BOT' })).channels).toHaveLength(1);
+  });
+
+  it('ignores a bot that is not listed', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    try {
+      const event = { user: 'U0BOT', bot_id: 'B0BOT', text: '<@U0PIP> cc fix the build' };
+      for (const bots of ['', 'U0ELSE,B0ELSE']) {
+        const { channels, posts } = await mention(event, { bots });
+        expect(channels).toEqual([]);
+        expect(posts).toEqual([]);
+      }
+      expect(warn).toHaveBeenCalledTimes(2);
+    } finally {
+      warn.mockRestore();
+    }
+  });
+
+  it('ignores a person who is not the owner', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    try {
+      const event = { user: 'U0SOMEONE', text: '<@U0PIP> cc fix the build' };
+      // Listing a person does not let them in: the list is for bots.
+      for (const bots of ['', 'U0SOMEONE']) {
+        const { channels, posts } = await mention(event, { bots });
+        expect(channels).toEqual([]);
+        expect(posts).toEqual([]);
+      }
+    } finally {
+      warn.mockRestore();
+    }
+  });
+
+  it('answers an empty prompt with the usage', async () => {
+    const { CC_MENTION_USAGE } = await import('../src/worker/slack');
+    expect(CC_MENTION_USAGE).toContain('`@pip cc <prompt>`');
+    for (const text of ['<@U0PIP> cc', '<@U0PIP> cc   ', '<@U0PIP> cc public:']) {
+      const { channels, posts } = await mention({ user: owner, text });
+      expect(channels).toEqual([]);
+      expect(posts).toHaveLength(1);
+      expect(posts[0]).toMatchObject({ text: CC_MENTION_USAGE, thread_ts: '1700000000.000100' });
+    }
+  });
+
+  it('waves at any other mention from the owner, and at no one else', async () => {
+    const waved = await mention({ user: owner, text: 'hey <@U0PIP> cc fix the build' });
+    expect(waved.channels).toEqual([]);
+    expect(waved.posts).toHaveLength(1);
+    expect(waved.posts[0]?.text).toBe(`:wave: <@${owner}>`);
+
+    const event = { user: 'U0BOT', bot_id: 'B0BOT', text: '<@U0PIP> hello' };
+    const ignored = await mention(event, { bots: 'U0BOT,B0BOT' });
+    expect(ignored.channels).toEqual([]);
+    expect(ignored.posts).toEqual([]);
+  });
+
+  it("ignores pip's own messages, even when pip is listed", async () => {
+    const text = '<@U0PIP> cc fix the build';
+    for (const event of [
+      { user: 'U0PIP', bot_id: 'B0PIP', text },
+      { subtype: 'bot_message', bot_id: 'B0PIP', text },
+    ]) {
+      const { channels, posts } = await mention(event, { bots: 'U0PIP,B0PIP' });
+      expect(channels).toEqual([]);
+      expect(posts).toEqual([]);
+    }
+  });
+
+  it('does not start a second channel when Slack sends the event again', async () => {
+    const event = { user: owner, text: '<@U0PIP> cc fix the build' };
+    expect((await mention(event)).channels).toHaveLength(1);
+    const again = await mention(event, { retry: true });
+    expect(again.channels).toEqual([]);
+    expect(again.posts).toEqual([]);
   });
 });
