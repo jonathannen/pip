@@ -86,6 +86,12 @@ async function mention(
   }
 }
 
+/**
+ * Sends pip a DM the same way: a `message` event in an `im` channel, D0PIP, with no mention in it.
+ */
+const dm = (event: Record<string, unknown>, options?: Parameters<typeof mention>[1]) =>
+  mention({ type: 'message', channel_type: 'im', channel: 'D0PIP', ...event }, options);
+
 /** Stands in for Google: answers the token endpoint and Gmail, and records what was asked. */
 function mockGoogle(gmail: (url: URL) => unknown = () => ({})) {
   const tokenRequests: Record<string, string>[] = [];
@@ -942,6 +948,107 @@ describe('cc mention', () => {
     const event = { user: owner, text: '<@U0PIP> cc fix the build' };
     expect((await mention(event)).channels).toHaveLength(1);
     const again = await mention(event, { retry: true });
+    expect(again.channels).toEqual([]);
+    expect(again.posts).toEqual([]);
+  });
+});
+
+describe('cc in a DM', () => {
+  const owner = env.SLACK_OWNER_USER_ID;
+
+  it('reads the prompt after cc', async () => {
+    const { parseCc } = await import('../src/worker/slack');
+    expect(parseCc('cc fix the build')).toBe('fix the build');
+    expect(parseCc('  CC  fix\nthe build\n')).toBe('fix\nthe build');
+    expect(parseCc('cc\nfix the build')).toBe('fix the build');
+    expect(parseCc('cc')).toBe('');
+    expect(parseCc(' Cc   ')).toBe('');
+    // Slack's escaping, undone, as for a mention.
+    expect(parseCc('cc a &amp;&amp; b &lt;div&gt; <https://x.test/1|x.test/1>')).toBe(
+      'a && b <div> https://x.test/1',
+    );
+    // Not the command: `cc` is not a word of its own, or not first.
+    expect(parseCc('ccsomething')).toBeUndefined();
+    expect(parseCc('ccc fix the build')).toBeUndefined();
+    expect(parseCc('cc: fix the build')).toBeUndefined();
+    expect(parseCc('/cc fix the build')).toBeUndefined();
+    expect(parseCc('please cc fix the build')).toBeUndefined();
+    expect(parseCc('')).toBeUndefined();
+  });
+
+  it('starts a code channel for the owner and answers with the link', async () => {
+    const { channels, posts } = await dm({
+      user: owner,
+      text: 'cc fix the build\nand tell <@U0SOMEONE>',
+    });
+    expect(channels).toHaveLength(1);
+    expect(channels[0]?.is_private).toBe('true');
+    expect(channels[0]?.blocks).toContain('"fix the build\\nand tell <@U0SOMEONE>"');
+    expect(channels[0]?.blocks).not.toContain('pynhq/pyn');
+    // The same answer as to a mention, in the DM.
+    expect(posts).toEqual([
+      { channel: 'D0PIP', text: `:rocket: Started <#C0NEW> (${DEFAULT_CODE_MODEL}).` },
+    ]);
+  });
+
+  it('takes the /cc prefixes', async () => {
+    const { channels, posts } = await dm({ user: owner, text: '  CC public: raw: ship it' });
+    expect(channels).toHaveLength(1);
+    expect(channels[0]?.is_private).toBe('false');
+    expect(channels[0]?.blocks).toContain('"ship it"');
+    expect(posts).toHaveLength(1);
+  });
+
+  it('answers an empty prompt with the usage', async () => {
+    const { CC_DM_USAGE } = await import('../src/worker/slack');
+    expect(CC_DM_USAGE).toContain('`cc <prompt>`');
+    for (const text of ['cc', 'CC   ', 'cc public:']) {
+      const { channels, posts } = await dm({ user: owner, text });
+      expect(channels).toEqual([]);
+      expect(posts).toEqual([{ channel: 'D0PIP', text: CC_DM_USAGE }]);
+    }
+  });
+
+  it('answers any other DM from the owner as before', async () => {
+    for (const text of ['ccsomething', 'please cc fix the build', 'hello']) {
+      const { channels, posts } = await dm({ user: owner, text });
+      expect(channels).toEqual([]);
+      expect(posts).toEqual([{ channel: 'D0PIP', text: `You said: ${text}` }]);
+    }
+  });
+
+  it('only echoes someone who is not the owner, or a bot, listed or not', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    try {
+      const text = 'cc fix the build';
+      for (const event of [
+        { user: 'U0SOMEONE', text },
+        { user: 'U0BOT', bot_id: 'B0BOT', text },
+      ]) {
+        const { channels, posts } = await dm(event, { bots: 'U0SOMEONE,U0BOT,B0BOT' });
+        expect(channels).toEqual([]);
+        expect(posts).toEqual([{ channel: 'D0PIP', text: `You said: ${text}` }]);
+      }
+    } finally {
+      warn.mockRestore();
+    }
+  });
+
+  it('ignores cc outside a DM', async () => {
+    const { channels, posts } = await dm({
+      user: owner,
+      channel_type: 'channel',
+      channel: 'C0HERE',
+      text: 'cc fix the build',
+    });
+    expect(channels).toEqual([]);
+    expect(posts).toEqual([]);
+  });
+
+  it('does not start a second channel when Slack sends the event again', async () => {
+    const event = { user: owner, text: 'cc fix the build' };
+    expect((await dm(event)).channels).toHaveLength(1);
+    const again = await dm(event, { retry: true });
     expect(again.channels).toEqual([]);
     expect(again.posts).toEqual([]);
   });
