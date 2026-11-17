@@ -72,7 +72,7 @@ function Settings() {
           <dt>Preamble</dt>
           <dd>
             <code>{CODE_CHANNEL_PREAMBLE.trim()}</code>
-            <span className={styles.muted}>unless the prompt is sent raw</span>
+            <span className={styles.muted}>from the Code page and MCP tool, not Slack</span>
           </dd>
         </dl>
       </section>
