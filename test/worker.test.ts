@@ -299,6 +299,68 @@ describe('code channel', () => {
       fetchSpy.mockRestore();
     }
   });
+
+  it('swaps a first word that names a repo for a hint', async () => {
+    const { withCcHint } = await import('../src/worker/slack');
+    expect(withCcHint('web fix the header')).toBe('In the ponhq/pynhq.com repo: fix the header');
+    expect(withCcHint('pyn fix the header')).toBe('In the ponhq/pyn repo: fix the header');
+    expect(withCcHint('noj fix the header')).toBe(
+      'In the ponhq/pyn repo, noj (src/entry/noj): fix the header',
+    );
+    expect(withCcHint('siroj fix the header')).toBe(
+      'In the ponhq/pynhq.com repo, siroj: fix the header',
+    );
+    // In either case, and whatever the space after it; the rest is kept as written.
+    expect(withCcHint('WEB fix the header')).toBe('In the ponhq/pynhq.com repo: fix the header');
+    expect(withCcHint('Noj\nFix the\nheader')).toBe(
+      'In the ponhq/pyn repo, noj (src/entry/noj): Fix the\nheader',
+    );
+    // Not a hint: no such word first, a longer word, the word alone, or not followed by a space.
+    for (const prompt of [
+      'fix the header',
+      'fix the web header',
+      'website fix the header',
+      'pynhq fix the header',
+      'web',
+      'web: fix the header',
+      'constructor fix the header',
+    ]) {
+      expect(withCcHint(prompt)).toBe(prompt);
+    }
+  });
+
+  it('sends the hint after the /cc prefixes', async () => {
+    const { launchFromSlack } = await import('../src/worker/slack');
+    const calls: { is_private: string; blocks: string }[] = [];
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockImplementation(async (_url, init) => {
+      const form = init?.body as FormData;
+      calls.push(Object.fromEntries(form.entries()) as { is_private: string; blocks: string });
+      return Response.json({ ok: true, channel_id: 'C0123ABC' });
+    });
+    try {
+      const env = { SLACK_CLIENT_TOKEN: 'xoxc-test', SLACK_D_COOKIE: 'xoxd-test' };
+      // The reply echoes the prompt as sent, hint included.
+      expect(await launchFromSlack(env, 'public: Web fix the header')).toBe(
+        `:rocket: Started <#C0123ABC> (${DEFAULT_CODE_MODEL}): In the ponhq/pynhq.com repo: fix the header`,
+      );
+      await launchFromSlack(env, 'raw: public: siroj fix the header');
+      await launchFromSlack(env, 'pyn fix the header');
+      // A word alone is the whole prompt, and a prefix after the word is part of the prompt.
+      await launchFromSlack(env, 'public: web');
+      await launchFromSlack(env, 'web public: fix the header');
+      expect(
+        calls.map((sent) => [sent.is_private, sent.blocks.match(/"text":("[^"]*")/)?.[1]]),
+      ).toEqual([
+        ['false', '"In the ponhq/pynhq.com repo: fix the header"'],
+        ['false', '"In the ponhq/pynhq.com repo, siroj: fix the header"'],
+        ['true', '"In the ponhq/pyn repo: fix the header"'],
+        ['false', '"web"'],
+        ['true', '"In the ponhq/pynhq.com repo: public: fix the header"'],
+      ]);
+    } finally {
+      fetchSpy.mockRestore();
+    }
+  });
 });
 
 describe('sitrep', () => {
@@ -866,6 +928,14 @@ describe('cc mention', () => {
     expect(posts[0]?.thread_ts).toBe('1690000000.000001');
   });
 
+  it('takes the /cc repo words', async () => {
+    const { channels } = await mention({ user: owner, text: '<@U0PIP> cc noj fix the build' });
+    expect(channels).toHaveLength(1);
+    expect(channels[0]?.blocks).toContain(
+      '"In the ponhq/pyn repo, noj (src/entry/noj): fix the build"',
+    );
+  });
+
   it('starts a code channel for a listed bot', async () => {
     const event = { user: 'U0BOT', bot_id: 'B0BOT', text: '<@U0PIP> cc fix the build' };
     for (const bots of ['U0BOT', 'B0BOT,U0ELSE']) {
@@ -997,6 +1067,13 @@ describe('cc in a DM', () => {
     expect(channels[0]?.is_private).toBe('false');
     expect(channels[0]?.blocks).toContain('"ship it"');
     expect(posts).toHaveLength(1);
+  });
+
+  it('takes the /cc repo words', async () => {
+    const { channels } = await dm({ user: owner, text: 'cc public: web fix the build' });
+    expect(channels).toHaveLength(1);
+    expect(channels[0]?.is_private).toBe('false');
+    expect(channels[0]?.blocks).toContain('"In the ponhq/pynhq.com repo: fix the build"');
   });
 
   it('answers an empty prompt with the usage', async () => {

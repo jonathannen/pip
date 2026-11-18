@@ -148,8 +148,21 @@ export function slack(env: Env) {
   );
 }
 
+/**
+ * First words of a `/cc` prompt that stand for a repo, or a place in one, and the hint each puts
+ * before the rest of the prompt.
+ */
+const CC_HINTS: Record<string, string> = {
+  web: 'In the ponhq/pynhq.com repo: ',
+  pyn: 'In the ponhq/pyn repo: ',
+  noj: 'In the ponhq/pyn repo, noj (src/entry/noj): ',
+  siroj: 'In the ponhq/pynhq.com repo, siroj: ',
+};
+const CC_HINT_WORDS = Object.keys(CC_HINTS);
+const CC_HINT_WORD = new RegExp(`^(${CC_HINT_WORDS.join('|')})\\s+(?=\\S)`, 'i');
+
 const ccUsage = (say: string) =>
-  `Say \`${say} <prompt>\` to start a code channel on the prompt. Begin with \`public:\` for a public channel.`;
+  `Say \`${say} <prompt>\` to start a code channel on the prompt. Begin with \`public:\` for a public channel. A first word of ${CC_HINT_WORDS.map((word) => `\`${word}\``).join(', ')} says which repo.`;
 export const CC_USAGE = ccUsage('/cc');
 export const CC_MENTION_USAGE = ccUsage('@pip cc');
 export const CC_DM_USAGE = ccUsage('cc');
@@ -223,10 +236,20 @@ export function mayMentionCc(
 }
 
 /**
- * `/cc` text: an optional `public:` prefix, then the prompt, sent as it is with no preamble. A
- * `raw:` prefix, which used to skip the preamble, is still taken off and does nothing. Replies with
- * a link to the channel, or what went wrong; with `usage` when there is no prompt. `echo` says
- * whether the reply repeats the prompt.
+ * A `/cc` prompt with its first word, when that is one of CC_HINTS (in either case) and more
+ * follows, swapped for the hint. Any other prompt as it is: `website …`, or `web` alone.
+ */
+export function withCcHint(prompt: string): string {
+  const match = CC_HINT_WORD.exec(prompt);
+  const hint = CC_HINTS[match?.[1]?.toLowerCase() ?? ''];
+  return match && hint ? hint + prompt.slice(match[0].length) : prompt;
+}
+
+/**
+ * `/cc` text: an optional `public:` prefix, then the prompt, sent as it is with no preamble, bar a
+ * first word in CC_HINTS (see withCcHint). A `raw:` prefix, which used to skip the preamble, is
+ * still taken off and does nothing. Replies with a link to the channel, or what went wrong; with
+ * `usage` when there is no prompt. `echo` says whether the reply repeats the prompt.
  */
 export async function launchFromSlack(
   env: Parameters<typeof launchCodeChannel>[0],
@@ -250,7 +273,7 @@ export async function launchFromSlack(
   }
   try {
     const result = await launchCodeChannel(env, {
-      prompt,
+      prompt: withCcHint(prompt),
       is_private: isPrivate,
       add_preamble: false,
     });
