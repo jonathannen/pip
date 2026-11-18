@@ -5,7 +5,7 @@ import { addNote, listNotes, parseNoteBody } from './notes';
 /**
  * Slack signs every request; slack-edge rejects anything unsigned. Only the owner gets answers;
  * everyone else gets nothing. The one exception is `@pip cc`, which the bots named in
- * SLACK_CC_BOT_IDS may also say.
+ * SLACK_CC_BOT_IDS may also say; `cc` in a DM, with no mention, is the owner's alone.
  */
 export function slack(env: Env) {
   const app = new SlackApp({ env, routes: { events: '/slack/events' } });
@@ -34,15 +34,10 @@ export function slack(env: Env) {
           if (retryNum) {
             return;
           }
-          let text: string;
-          if (prompt === '') {
-            text = CC_MENTION_USAGE;
-          } else if (codeChannelsEnabled(env)) {
-            text = await launchFromSlack(env, prompt, { usage: CC_MENTION_USAGE, echo: false });
-          } else {
-            text = CC_OFF;
-          }
-          await context.say({ text, thread_ts: payload.thread_ts ?? payload.ts });
+          await context.say({
+            text: await answerCc(env, prompt, CC_MENTION_USAGE),
+            thread_ts: payload.thread_ts ?? payload.ts,
+          });
           return;
         }
         if (payload.user !== env.SLACK_OWNER_USER_ID) {
@@ -50,9 +45,10 @@ export function slack(env: Env) {
         }
         await context.say({ text: `:wave: <@${payload.user}>`, thread_ts: payload.ts });
       })
-      // A DM: for the owner, `note <text>` keeps a note, `notes` lists the last five, anything else
-      // is echoed. Anyone else only gets the echo.
-      .anyMessage(async ({ context, payload }) => {
+      // A DM: for the owner, `cc <prompt>` starts a code channel like `@pip cc` without the mention,
+      // `note <text>` keeps a note, `notes` lists the last five, anything else is echoed. Anyone
+      // else only gets the echo.
+      .anyMessage(async ({ context, payload, retryNum }) => {
         if (payload.channel_type !== 'im' || payload.subtype) {
           return;
         }
@@ -61,10 +57,19 @@ export function slack(env: Env) {
         if (!owner) {
           console.warn('pip: DM from a non-owner', payload.user);
         }
+        const prompt = owner ? parseCc(text) : undefined;
+        // As for a mention: an event Slack sends again never starts a second channel.
+        if (prompt !== undefined && retryNum) {
+          return;
+        }
         try {
-          await context.say({
-            text: owner ? await reply(text, `slack:${payload.user}`) : echo(text),
-          });
+          let answer: string;
+          if (prompt !== undefined) {
+            answer = await answerCc(env, prompt, CC_DM_USAGE);
+          } else {
+            answer = owner ? await reply(text, `slack:${payload.user}`) : echo(text);
+          }
+          await context.say({ text: answer });
         } catch (error) {
           // chat.postMessage failed (bad SLACK_BOT_TOKEN, missing chat:write, ...). Log which
           // workspace the token belongs to against the one that sent the event.
@@ -147,24 +152,55 @@ const ccUsage = (say: string) =>
   `Say \`${say} <prompt>\` to start a code channel on the prompt. Begin with \`public:\` for a public channel.`;
 export const CC_USAGE = ccUsage('/cc');
 export const CC_MENTION_USAGE = ccUsage('@pip cc');
+export const CC_DM_USAGE = ccUsage('cc');
 const CC_OFF = 'Code channels are off: SLACK_CLIENT_TOKEN / SLACK_D_COOKIE are not set.';
 
 /**
- * The prompt in `@pip cc <prompt>`: the mention of pip first, then `cc` in either case, then the
- * rest, newlines kept; empty when nothing follows `cc`. Undefined when the message isn't that.
+ * The prompt in `@pip cc <prompt>`: the mention of pip first, then `cc <prompt>` as parseCc reads
+ * it. Undefined when the message isn't that.
  */
 export function parseCcMention(text: string, botUserId: string | undefined): string | undefined {
-  const match = /^\s*<@([A-Z0-9]+)(?:\|[^>]*)?>\s*cc(?:\s+([\s\S]*))?$/i.exec(text);
+  const match = /^\s*<@([A-Z0-9]+)(?:\|[^>]*)?>([\s\S]*)$/i.exec(text);
   if (!match || botUserId === undefined || match[1] !== botUserId) {
     return undefined;
   }
+  return parseCc(match[2] ?? '');
+}
+
+/**
+ * The prompt in `cc <prompt>`: `cc` first, in either case, then the rest, newlines kept; empty when
+ * nothing follows `cc`. Undefined when the message isn't that (`ccc`, or `cc` further in).
+ */
+export function parseCc(text: string): string | undefined {
+  const match = /^\s*cc(?:\s+([\s\S]*))?$/i.exec(text);
+  if (!match) {
+    return undefined;
+  }
   // An event's text has links as `<url>` or `<url|label>`, and `&`, `<` and `>` escaped.
-  return (match[2] ?? '')
+  return (match[1] ?? '')
     .replace(/<(https?:\/\/[^|>\s]+)(?:\|[^>]*)?>/g, '$1')
     .replaceAll('&lt;', '<')
     .replaceAll('&gt;', '>')
     .replaceAll('&amp;', '&')
     .trim();
+}
+
+/**
+ * What pip says back to `@pip cc <prompt>` or a DM's `cc <prompt>`, having started the code channel:
+ * a link to it or what went wrong, without the prompt again. `usage` when there is no prompt.
+ */
+async function answerCc(
+  env: Parameters<typeof launchCodeChannel>[0],
+  prompt: string,
+  usage: string,
+): Promise<string> {
+  if (prompt === '') {
+    return usage;
+  }
+  if (!codeChannelsEnabled(env)) {
+    return CC_OFF;
+  }
+  return launchFromSlack(env, prompt, { usage, echo: false });
 }
 
 /**
