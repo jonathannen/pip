@@ -1,0 +1,79 @@
+.form {
+  display: grid;
+  gap: 1.25rem;
+
+  & fieldset {
+    border: 0;
+    display: grid;
+    gap: 0.75rem;
+    margin: 0;
+    min-width: 0;
+    padding: 0;
+  }
+
+  & legend {
+    font-weight: 600;
+    padding: 0;
+  }
+
+  /* A legend is not one of the grid's rows, so the line about the group sits right under it. */
+  & fieldset > p {
+    color: var(--text-muted);
+    margin-top: 0.125rem;
+  }
+}
+
+.field {
+  display: grid;
+  gap: 0.25rem;
+
+  & label {
+    align-items: baseline;
+    display: flex;
+    font-weight: 500;
+    gap: 0.5rem;
+  }
+
+  & input {
+    background: var(--surface);
+    border: 1px solid var(--border-strong);
+    border-radius: 0.375rem;
+    color: var(--text);
+    font: inherit;
+    /* Under 16px, iOS zooms in when the field is focused. */
+    font-size: 16px;
+    height: 2rem;
+    min-width: 0;
+    padding: 0 0.75rem;
+
+    &:disabled {
+      opacity: 0.5;
+    }
+  }
+}
+
+.optional {
+  color: var(--text-subtle);
+  font-size: 0.75rem;
+  font-weight: 400;
+}
+
+.hint {
+  color: var(--text-muted);
+  font-size: 0.8125rem;
+}
+
+.actions {
+  display: flex;
+  gap: 0.5rem;
+}
+
+.quiet {
+  background: none;
+  border-color: var(--border-strong);
+  color: var(--text);
+}
+
+.error {
+  color: var(--danger);
+}

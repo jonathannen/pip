@@ -161,7 +161,7 @@ export function slack(env: SlackEnv, home = true) {
 
 /**
  * A slash command's name. It has to be one the app's manifest declares (SLACK_COMMANDS), so the
- * manifest Settings hands out can't fall behind the commands answered here.
+ * manifest pip hands out can't fall behind the commands answered here.
  */
 const command = (name: SlackCommand) => name;
 
