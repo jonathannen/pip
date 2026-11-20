@@ -8,6 +8,7 @@ import type {
   SlackWorkspaces,
 } from '../../shared/api';
 import { CODE_CHANNEL_PREAMBLE, CODE_MODELS, DEFAULT_CODE_MODEL } from '../../shared/api';
+import { slackManifest } from '../../shared/slack-manifest';
 import styles from './settings.module.css';
 
 const root = getRouteApi('__root__');
@@ -368,6 +369,7 @@ function WorkspacesSection() {
           ))}
         </ul>
       )}
+      <SlackManifest />
       {form && (
         <form className={styles.form} onSubmit={submit}>
           {WORKSPACE_FIELDS.map(([name, label, hint]) => (
@@ -505,5 +507,40 @@ function DeployedSection() {
         </dl>
       )}
     </section>
+  );
+}
+
+/**
+ * The manifest to make pip's Slack app from in another workspace: paste it into Slack, install the
+ * app, then add the workspace above. It is the same for every workspace, and has no secret in it.
+ */
+function SlackManifest() {
+  const manifest = JSON.stringify(slackManifest(window.location.origin), null, 2);
+  const [copied, setCopied] = useState(false);
+  return (
+    <details className={styles.manifest}>
+      <summary>Slack app manifest</summary>
+      <p>
+        To make pip's Slack app in another workspace,{' '}
+        <a href="https://api.slack.com/apps?new_app=1" rel="noreferrer" target="_blank">
+          create an app
+        </a>{' '}
+        from a manifest and paste this in. Install it, add the workspace here, then verify the
+        Request URL in Slack.
+      </p>
+      <textarea aria-label="Slack app manifest" readOnly rows={12} value={manifest} />
+      <button
+        className={styles.quiet}
+        onClick={() =>
+          navigator.clipboard.writeText(manifest).then(
+            () => setCopied(true),
+            () => setCopied(false),
+          )
+        }
+        type="button"
+      >
+        {copied ? 'Copied' : 'Copy'}
+      </button>
+    </details>
   );
 }

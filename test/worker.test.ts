@@ -1774,6 +1774,73 @@ describe('workspaces', () => {
     }
   });
 
+  it('hands out a manifest for the Slack app the Worker answers', async () => {
+    const { SLACK_COMMANDS, slackManifest } = await import('../src/shared/slack-manifest');
+    const manifest = slackManifest('https://pip.example.com');
+    const url = 'https://pip.example.com/slack/events';
+    // The scopes and events the README has for the home app, which is what the Worker handles:
+    // `app_mention`, and a `message` in an `im`.
+    expect(manifest.oauth_config).toEqual({
+      scopes: { bot: ['app_mentions:read', 'chat:write', 'commands', 'im:history'] },
+    });
+    expect(manifest.settings).toEqual({
+      event_subscriptions: { request_url: url, bot_events: ['app_mention', 'message.im'] },
+      interactivity: { is_enabled: true, request_url: url },
+      org_deploy_enabled: false,
+      socket_mode_enabled: false,
+      token_rotation_enabled: false,
+    });
+    expect(manifest.display_information).toEqual({ name: 'pip' });
+    expect(manifest.features.bot_user).toEqual({ display_name: 'pip' });
+    // DMs to pip need the Messages tab, and it not read-only.
+    expect(manifest.features.app_home).toMatchObject({
+      messages_tab_enabled: true,
+      messages_tab_read_only_enabled: false,
+    });
+    // Every URL in it is on the origin given, and there is nothing else to call.
+    const urls = JSON.stringify(manifest).match(/https?:[^"]*/g);
+    expect(urls).toHaveLength(5);
+    expect(new Set(urls)).toEqual(new Set([url]));
+    for (const key of ['redirect_urls', 'user', 'app_directory']) {
+      expect(JSON.stringify(manifest)).not.toContain(`"${key}"`);
+    }
+
+    // The commands are SLACK_COMMANDS, each with a description, and the Worker answers each one:
+    // a command it has no handler for is a 404.
+    const commands = Object.keys(SLACK_COMMANDS);
+    expect(commands).toEqual(['/pip', '/cc', '/sitrep']);
+    expect(manifest.features.slash_commands.map((item) => item.command)).toEqual(commands);
+    for (const item of manifest.features.slash_commands) {
+      expect(item.url).toBe(url);
+      expect(item.description).not.toBe('');
+    }
+    // Slack says yes to whatever a command goes on to ask of it, a reply to its response_url too.
+    const slack = vi.spyOn(globalThis, 'fetch').mockImplementation(async (input) => {
+      const { hostname } = new URL(input instanceof Request ? input.url : String(input));
+      return hostname === 'hooks.slack.com'
+        ? new Response('ok')
+        : Response.json({ ok: true, team_id: 'T0PIP', user_id: 'U0PIP', bot_id: 'B0PIP' });
+    });
+    const log = vi.spyOn(console, 'log').mockImplementation(() => {});
+    try {
+      const send = (command: string) =>
+        slackRequest(
+          commandFrom('T0PIP', owner, command, ''),
+          'test-signing-secret',
+          'application/x-www-form-urlencoded',
+        );
+      for (const command of commands) {
+        const res = await send(command);
+        expect([command, res.status]).toEqual([command, 200]);
+        expect(((await res.json()) as { text: string }).text).not.toBe('');
+      }
+      expect((await send('/nope')).status).toBe(404);
+    } finally {
+      log.mockRestore();
+      slack.mockRestore();
+    }
+  });
+
   it("has the home workspace only when the table isn't there yet", async () => {
     await env.DB.exec('DELETE FROM slack_workspaces');
     await env.DB.exec('ALTER TABLE slack_workspaces RENAME TO slack_workspaces_later');

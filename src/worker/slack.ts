@@ -1,6 +1,7 @@
 import { SlackApp } from 'slack-edge';
 import type { CodeChannelEnv } from '../lib/code-channel';
 import { callClientApi, codeChannelsEnabled, launchCodeChannel } from '../lib/code-channel';
+import type { SlackCommand } from '../shared/slack-manifest';
 import { addNote, listNotes, parseNoteBody } from './notes';
 
 /**
@@ -89,7 +90,7 @@ export function slack(env: SlackEnv, home = true) {
         }
       })
       // `/pip <text>`, the same as a DM, answered only to you.
-      .command('/pip', async ({ payload }) => {
+      .command(command('/pip'), async ({ payload }) => {
         if (payload.user_id !== env.SLACK_OWNER_USER_ID) {
           return;
         }
@@ -101,7 +102,7 @@ export function slack(env: SlackEnv, home = true) {
       // `/cc <prompt>` starts a Slack code channel on the prompt. Slack wants an answer within three
       // seconds and creating the channel can take longer, so ack first and post the result after.
       .command(
-        '/cc',
+        command('/cc'),
         async ({ payload }) => {
           if (payload.user_id !== env.SLACK_OWNER_USER_ID) {
             return;
@@ -133,7 +134,7 @@ export function slack(env: SlackEnv, home = true) {
       // `/sitrep` asks every channel in the owner's "Scheduled" sidebar section for its status, as
       // the owner. Ack first and post the result after, like `/cc`.
       .command(
-        '/sitrep',
+        command('/sitrep'),
         async ({ payload }) => {
           if (payload.user_id !== env.SLACK_OWNER_USER_ID) {
             return;
@@ -157,6 +158,12 @@ export function slack(env: SlackEnv, home = true) {
       )
   );
 }
+
+/**
+ * A slash command's name. It has to be one the app's manifest declares (SLACK_COMMANDS), so the
+ * manifest Settings hands out can't fall behind the commands answered here.
+ */
+const command = (name: SlackCommand) => name;
 
 /** One workspace's Slack app and what it may do, under the env's names. */
 export interface SlackEnv extends CodeChannelEnv {
