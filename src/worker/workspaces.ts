@@ -5,7 +5,7 @@
 import { env } from 'cloudflare:workers';
 import { verifySlackRequest } from 'slack-edge';
 import type { CodeChannelWorkspaces } from '../lib/code-channel';
-import { codeChannelsEnabled } from '../lib/code-channel';
+import { codeChannelsEnabled, dCookieValue } from '../lib/code-channel';
 import { decryptSecret, encryptSecret, importSecretsKey } from '../lib/secrets';
 import type { SlackWorkspace, SlackWorkspaces } from '../shared/api';
 import type { SlackEnv } from './slack';
@@ -337,7 +337,8 @@ export async function saveWorkspace(json: unknown, existing?: string): Promise<S
   // The secrets as given; one that is blank stays as stored, which for a new workspace is unset.
   const given: Partial<Record<Secret, string>> = {};
   for (const column of SECRETS) {
-    const value = field(input, column);
+    // The d cookie is kept as Slack takes it, whichever way it was copied.
+    const value = column === 'd_cookie' ? dCookieValue(field(input, column)) : field(input, column);
     if (value === '') {
       continue;
     }

@@ -1,5 +1,5 @@
 // Slack's internal web-client API (undocumented). Auth is the browser session:
-// an xoxc token in the form body plus the matching `d` (xoxd) cookie.
+// an xoxc token in the form body plus the matching `d` (xoxd) cookie, percent-encoded.
 // Shared by the Worker's MCP server, the API, the Slack app and the stdio entry, so it takes its env.
 
 import type { McpServer } from '@modelcontextprotocol/server';
@@ -38,11 +38,92 @@ export function codeChannelsEnabled(env: CodeChannelEnv): boolean {
 }
 
 function requireEnv(env: CodeChannelEnv, name: 'SLACK_CLIENT_TOKEN' | 'SLACK_D_COOKIE'): string {
-  const value = env[name];
+  // Trimmed: a workspace's are when Settings saves them, a secret set with wrangler is not.
+  const value = env[name]?.trim();
   if (!value) {
     throw new Error(`${name} is not set (wrangler secret put ${name}, or .dev.vars locally)`);
   }
   return value;
+}
+
+/**
+ * The `d` cookie's value as Slack takes it: percent-encoded, which is how the browser keeps it
+ * (`xoxd-…%2B…%2F…%3D`). It also gets copied URL-decoded (`xoxd-…+…/…=`), and sent like that
+ * Slack reads a `+` as a space and answers `invalid_auth`. So one already encoded comes back as
+ * it is, never encoded twice, and one that isn't, or is only in part, comes back encoded. A `d=`
+ * before it and the space around it are taken off. Giving it its own result changes nothing.
+ */
+export function dCookieValue(copied: string): string {
+  const value = copied.trim().replace(/^d=\s*/, '');
+  if (/^(?:[\w.~-]|%[0-9A-Fa-f]{2})*$/.test(value)) {
+    return value;
+  }
+  try {
+    return encodeURIComponent(decodeURIComponent(value));
+  } catch {
+    // A `%` that begins no escape is one of the value's own characters: nothing to decode first.
+    return encodeURIComponent(value);
+  }
+}
+
+const host = (env: CodeChannelEnv) => `${env.SLACK_WORKSPACE || DEFAULTS.workspace}.slack.com`;
+
+/** One call to the web-client API as the session: Slack's answer, `ok` or not. */
+async function post(
+  env: CodeChannelEnv,
+  method: string,
+  fields: Record<string, string>,
+): Promise<SlackResponse> {
+  const form = new FormData();
+  form.set('token', requireEnv(env, 'SLACK_CLIENT_TOKEN'));
+  for (const [key, value] of Object.entries(fields)) {
+    form.set(key, value);
+  }
+
+  const res = await fetch(`https://${host(env)}/api/${method}`, {
+    method: 'POST',
+    headers: {
+      cookie: `d=${dCookieValue(requireEnv(env, 'SLACK_D_COOKIE'))}`,
+      origin: 'https://app.slack.com',
+    },
+    body: form,
+  });
+  if (!res.ok) {
+    throw new Error(`${method}: HTTP ${res.status}`);
+  }
+  return (await res.json()) as SlackResponse;
+}
+
+/** What Slack answers when it is who is asking that it turns down, whatever was asked. */
+const SESSION_ERRORS = ['invalid_auth', 'not_authed', 'token_revoked', 'token_expired'];
+
+/**
+ * What to make of Slack turning a call down with one of SESSION_ERRORS, which reads the same
+ * whether the token and cookie are no good or it is what they were sent with. Slack is asked
+ * `auth.test` with the same session to tell the two apart. Names the host and the IDs sent, never
+ * the token or the cookie.
+ */
+async function sessionTurnedDown(
+  env: CodeChannelEnv,
+  fields: Record<string, string>,
+): Promise<string> {
+  const enterAgain =
+    "Copy both again from one browser signed in to that workspace (they stop working when it signs out) and enter them: on pip's Settings for a workspace added there, as the SLACK_CLIENT_TOKEN and SLACK_D_COOKIE secrets for the home one.";
+  const test = await post(env, 'auth.test', {}).catch(() => undefined);
+  if (!test) {
+    return `Slack turned down the browser session sent to ${host(env)}: its client token and d cookie. ${enterAgain}`;
+  }
+  if (!test.ok) {
+    return `Slack turns down the browser session sent to ${host(env)} whatever is asked (auth.test: ${test.error ?? 'unknown error'}), so it is the client token and d cookie. ${enterAgain}`;
+  }
+  const id = (value: unknown) => (typeof value === 'string' && value !== '' ? value : 'unknown');
+  const sentAs = fields.team_id || env.SLACK_TEAM_ID || DEFAULTS.teamId;
+  const sent = `team ${sentAs}${fields.app_id ? ` and code app ${fields.app_id}` : ''}`;
+  const where = typeof test.url === 'string' ? `, ${test.url}` : '';
+  const taken = `Slack takes the browser session at ${host(env)} (auth.test: team ${id(test.team_id)}, member ${id(test.user_id)}${where}), so the client token and d cookie are a working pair.`;
+  return test.team_id === sentAs
+    ? `${taken} It is this request it turns down, sent with ${sent}: check those and the host.`
+    : `${taken} That session is team ${id(test.team_id)}’s, and this was sent as ${sent}: the client token is another workspace’s, or the team ID is not this one’s.`;
 }
 
 export async function callClientApi(
@@ -50,26 +131,11 @@ export async function callClientApi(
   method: string,
   fields: Record<string, string>,
 ) {
-  const form = new FormData();
-  form.set('token', requireEnv(env, 'SLACK_CLIENT_TOKEN'));
-  for (const [key, value] of Object.entries(fields)) {
-    form.set(key, value);
-  }
-
-  const workspace = env.SLACK_WORKSPACE || DEFAULTS.workspace;
-  const res = await fetch(`https://${workspace}.slack.com/api/${method}`, {
-    method: 'POST',
-    // Cookie value is sent as copied from the browser (already URL-encoded)
-    headers: { cookie: `d=${requireEnv(env, 'SLACK_D_COOKIE')}`, origin: 'https://app.slack.com' },
-    body: form,
-  });
-  if (!res.ok) {
-    throw new Error(`${method}: HTTP ${res.status}`);
-  }
-
-  const body = (await res.json()) as SlackResponse;
+  const body = await post(env, method, fields);
   if (!body.ok) {
-    throw new Error(`${method}: ${body.error ?? 'unknown error'}`);
+    const error = body.error ?? 'unknown error';
+    const why = SESSION_ERRORS.includes(error) ? `. ${await sessionTurnedDown(env, fields)}` : '';
+    throw new Error(`${method}: ${error}${why}`);
   }
   return body;
 }
@@ -128,12 +194,11 @@ export async function launchCodeChannel(
   const prompt = add_preamble && home ? CODE_CHANNEL_PREAMBLE + request.prompt : request.prompt;
   const response = await createCodeChannel(env, prompt, is_private, model);
   const channelId = findChannelId(response);
-  const workspace = env.SLACK_WORKSPACE || DEFAULTS.workspace;
   return {
     prompt,
     model,
     channel_id: channelId,
-    url: channelId ? `https://${workspace}.slack.com/archives/${channelId}` : null,
+    url: channelId ? `https://${host(env)}/archives/${channelId}` : null,
     response,
   };
 }

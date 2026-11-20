@@ -300,6 +300,154 @@ describe('code channel', () => {
     }
   });
 
+  it('sends the d cookie percent-encoded, whichever way it was copied', async () => {
+    const { launchFromSlack } = await import('../src/worker/slack');
+    const sent: { cookie: string | null; token: string }[] = [];
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => {
+      const request = new Request(input, init);
+      const form = Object.fromEntries(await request.formData()) as Record<string, string>;
+      sent.push({ cookie: request.headers.get('cookie'), token: form.token ?? '' });
+      return Response.json({ ok: true, channel_id: 'C0123ABC' });
+    });
+    try {
+      // As the browser keeps it, which is what Slack takes. Developer tools also show it
+      // URL-decoded, and sent like that Slack reads the `+` as a space and says invalid_auth.
+      const kept = 'xoxd-aB3%2BcD4%2FeF5%3D%3D';
+      for (const copied of [
+        kept,
+        'xoxd-aB3+cD4/eF5==',
+        'xoxd-aB3%2BcD4/eF5==',
+        // A secret set with `wrangler secret put` is not trimmed as the form's are.
+        ' xoxd-aB3+cD4/eF5==\n',
+        'd=xoxd-aB3%2BcD4%2FeF5%3D%3D',
+      ]) {
+        const text = await launchFromSlack(
+          { SLACK_CLIENT_TOKEN: 'xoxc-test\n', SLACK_D_COOKIE: copied },
+          'fix it',
+        );
+        expect(text).toContain('<#C0123ABC>');
+      }
+      expect(sent).toEqual(Array(5).fill({ cookie: `d=${kept}`, token: 'xoxc-test' }));
+    } finally {
+      fetchSpy.mockRestore();
+    }
+  });
+
+  it('encodes a d cookie once, and only what is not encoded yet', async () => {
+    const { dCookieValue } = await import('../src/lib/code-channel');
+    const kept = 'xoxd-aB3%2BcD4%2FeF5%3D%3D';
+    for (const [copied, sent] of [
+      // Encoded already, in either case of hex: as it is, never encoded twice.
+      [kept, kept],
+      ['xoxd-aB3%2bcD4%2feF5%3d%3d', 'xoxd-aB3%2bcD4%2feF5%3d%3d'],
+      ['xoxd-plain_value.with~safe-characters', 'xoxd-plain_value.with~safe-characters'],
+      // Decoded, in whole or in part.
+      ['xoxd-aB3+cD4/eF5==', kept],
+      ['xoxd-aB3%2BcD4/eF5==', kept],
+      ['xoxd-aB3+cD4%2FeF5%3D=', kept],
+      // With what gets copied along with it.
+      [`d=${kept}`, kept],
+      ['  d= xoxd-aB3+cD4/eF5==\t\n', kept],
+      // A `%` that begins no escape is a character of the value, with or without others to encode.
+      ['xoxd-50%', 'xoxd-50%25'],
+      ['xoxd-50%zz', 'xoxd-50%25zz'],
+      ['xoxd-50%+1', 'xoxd-50%25%2B1'],
+      ['xoxd-a%2', 'xoxd-a%252'],
+      ['', ''],
+    ] as const) {
+      expect([copied, dCookieValue(copied)]).toEqual([copied, sent]);
+      // What comes out is what Slack takes, so it comes out of a second pass the same.
+      expect(dCookieValue(sent)).toBe(sent);
+      // And it is one cookie's value: nothing in it ends the cookie or starts another.
+      expect(sent).toMatch(/^[\w.~%!*'()-]*$/);
+    }
+  });
+
+  it('says whether it is the session Slack turns down, or what it was sent with', async () => {
+    const { launchFromSlack } = await import('../src/worker/slack');
+    const env = {
+      SLACK_CLIENT_TOKEN: 'xoxc-test',
+      SLACK_D_COOKIE: 'xoxd-test',
+      SLACK_WORKSPACE: 'second',
+      SLACK_TEAM_ID: 'T0SECOND01',
+      SLACK_CODE_APP_ID: 'A0SECOND01',
+    };
+    /** Slack's answer to `auth.test` with the same session, after it said invalid_auth. */
+    let authTest: () => Response;
+    const asked: string[] = [];
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => {
+      const request = new Request(input, init);
+      asked.push(request.url);
+      expect(request.headers.get('cookie')).toBe('d=xoxd-test');
+      expect((await request.formData()).get('token')).toBe('xoxc-test');
+      return request.url.endsWith('/api/auth.test')
+        ? authTest()
+        : Response.json({ ok: false, error: 'invalid_auth' });
+    });
+    try {
+      // The session itself is no good: the token and cookie are what to enter again.
+      authTest = () => Response.json({ ok: false, error: 'invalid_auth' });
+      const turnedDown = await launchFromSlack(env, 'fix it');
+      expect(turnedDown).toContain(
+        ":x: Couldn't start the code channel: client.codeChannels.create: invalid_auth. ",
+      );
+      expect(turnedDown).toContain('second.slack.com');
+      expect(turnedDown).toContain('auth.test: invalid_auth');
+      expect(turnedDown).toContain('client token and d cookie');
+      expect(turnedDown).toContain('Settings');
+      expect(asked).toEqual([
+        'https://second.slack.com/api/client.codeChannels.create',
+        'https://second.slack.com/api/auth.test',
+      ]);
+
+      // The session is good, so it is the request: what it was sent with is said.
+      authTest = () => Response.json({ ok: true, team_id: 'T0SECOND01', user_id: 'U0OWNER002' });
+      const taken = await launchFromSlack(env, 'fix it');
+      expect(taken).toContain('client.codeChannels.create: invalid_auth. ');
+      expect(taken).toContain('auth.test: team T0SECOND01, member U0OWNER002');
+      expect(taken).toContain('team T0SECOND01 and code app A0SECOND01');
+      expect(taken).not.toContain('enter them');
+
+      // The session is another workspace's.
+      authTest = () => Response.json({ ok: true, team_id: 'T0PIP', user_id: 'U0OWNER001' });
+      expect(await launchFromSlack(env, 'fix it')).toContain(
+        'That session is team T0PIP’s, and this was sent as team T0SECOND01',
+      );
+
+      // Slack can't be asked: what is known is said, and the error is still Slack's.
+      authTest = () => new Response('no', { status: 500 });
+      const unknown = await launchFromSlack(env, 'fix it');
+      expect(unknown).toContain('client.codeChannels.create: invalid_auth. ');
+      expect(unknown).toContain('second.slack.com');
+      expect(unknown).not.toContain('auth.test');
+
+      // No token or cookie is in any of it.
+      for (const text of [turnedDown, taken, unknown]) {
+        expect(text).not.toMatch(/xox[cd]-/);
+      }
+    } finally {
+      fetchSpy.mockRestore();
+    }
+  });
+
+  it('passes on any other error of Slack’s as it is', async () => {
+    const { launchFromSlack } = await import('../src/worker/slack');
+    const fetchSpy = vi
+      .spyOn(globalThis, 'fetch')
+      .mockImplementation(async () => Response.json({ ok: false, error: 'restricted_action' }));
+    try {
+      expect(
+        await launchFromSlack(
+          { SLACK_CLIENT_TOKEN: 'xoxc-test', SLACK_D_COOKIE: 'xoxd-test' },
+          'fix it',
+        ),
+      ).toBe(":x: Couldn't start the code channel: client.codeChannels.create: restricted_action");
+      expect(fetchSpy).toHaveBeenCalledTimes(1);
+    } finally {
+      fetchSpy.mockRestore();
+    }
+  });
+
   it('swaps a first word that names a repo for a hint', async () => {
     const { withCcHint } = await import('../src/worker/slack');
     expect(withCcHint('web fix the header')).toBe('In the ponhq/pynhq.com repo: fix the header');
@@ -1769,6 +1917,115 @@ describe('workspaces', () => {
       expect(tool.isError).toBe(true);
       expect(tool.text).toContain('No workspace T0NOSUCH01');
       expect(slack.channels).toHaveLength(4);
+    } finally {
+      slack.restore();
+    }
+  });
+
+  it('uses the session a workspace was added with or changed to, however its cookie was copied', async () => {
+    // Added with the d cookie as developer tools show it URL-decoded.
+    await addSecond({ d_cookie: 'xoxd-aB3+cD4/eF5==' });
+    const slack = mockSlack();
+    try {
+      const request = () =>
+        slackRequest(
+          mentionFrom('T0SECOND01', { user: SECOND.owner_user_id, text: '<@U0PIP> cc fix it' }),
+          SECOND.signing_secret,
+        );
+      expect((await request()).status).toBe(200);
+      expect(slack.channels[0]).toMatchObject({
+        url: 'https://second.slack.com/api/client.codeChannels.create',
+        cookie: 'd=xoxd-aB3%2BcD4%2FeF5%3D%3D',
+        token: 'xoxc-second-client',
+      });
+
+      // Both entered again on Settings, the rest left as it was: the next channel is started
+      // with the new pair, and the bot token and signing secret are the ones kept.
+      const changed = await api('workspaces/T0SECOND01', 'PUT', {
+        ...SECOND,
+        bot_token: '',
+        signing_secret: '',
+        client_token: ' xoxc-second-again ',
+        d_cookie: 'xoxd-gH6%2BiJ7%2FkL8%3D',
+      });
+      expect(changed.status).toBe(200);
+      expect((await request()).status).toBe(200);
+      expect(slack.channels[1]).toMatchObject({
+        url: 'https://second.slack.com/api/client.codeChannels.create',
+        cookie: 'd=xoxd-gH6%2BiJ7%2FkL8%3D',
+        token: 'xoxc-second-again',
+        team_id: 'T0SECOND01',
+        app_id: 'A0SECOND01',
+      });
+      expect(slack.posts.map((post) => post.authorization)).toEqual([
+        'Bearer xoxb-second-bot',
+        'Bearer xoxb-second-bot',
+      ]);
+
+      // One of the pair alone replaces that one and keeps the other.
+      const cookieOnly = await api('workspaces/T0SECOND01', 'PUT', {
+        ...SECOND,
+        bot_token: '',
+        signing_secret: '',
+        client_token: '',
+        d_cookie: 'xoxd-mN9+oP0=',
+      });
+      expect(cookieOnly.status).toBe(200);
+      expect((await request()).status).toBe(200);
+      expect(slack.channels[2]).toMatchObject({
+        cookie: 'd=xoxd-mN9%2BoP0%3D',
+        token: 'xoxc-second-again',
+      });
+      // In a DM it is the same workspace's session, host, team and code app: nothing of the
+      // home workspace's, nor its defaults.
+      const dm = mentionFrom('T0SECOND01', {
+        type: 'message',
+        channel_type: 'im',
+        channel: 'D0PIP',
+        user: SECOND.owner_user_id,
+        text: 'cc fix it',
+      });
+      expect((await slackRequest(dm, SECOND.signing_secret)).status).toBe(200);
+      expect(slack.channels[3]).toMatchObject({
+        url: 'https://second.slack.com/api/client.codeChannels.create',
+        cookie: 'd=xoxd-mN9%2BoP0%3D',
+        token: 'xoxc-second-again',
+        team_id: 'T0SECOND01',
+        app_id: 'A0SECOND01',
+      });
+      expect(slack.posts[3]).toMatchObject({
+        authorization: 'Bearer xoxb-second-bot',
+        channel: 'D0PIP',
+        text: `:rocket: Started <#C0NEW> (${DEFAULT_CODE_MODEL}).`,
+      });
+      expect(JSON.stringify(slack.channels)).not.toMatch(
+        /xox[cd]-test|pynhq|TH0RA7683|A08SF47R6P4/,
+      );
+
+      // Copied with its name, it is still the cookie; what isn't one is still turned down.
+      const named = await api('workspaces/T0SECOND01', 'PUT', {
+        ...SECOND,
+        bot_token: '',
+        signing_secret: '',
+        client_token: '',
+        d_cookie: ' d=xoxd-qR1/sT2= ',
+      });
+      expect(named.status).toBe(200);
+      expect((await request()).status).toBe(200);
+      expect(slack.channels[4]?.cookie).toBe('d=xoxd-qR1%2FsT2%3D');
+      for (const d_cookie of ['d=', 'b=xoxd-qR1', 'xoxc-not-a-cookie']) {
+        const res = await api('workspaces/T0SECOND01', 'PUT', {
+          ...SECOND,
+          bot_token: '',
+          signing_secret: '',
+          client_token: '',
+          d_cookie,
+        });
+        // A name with nothing after it is a field left blank, which keeps what is stored.
+        expect([d_cookie, res.status]).toEqual([d_cookie, d_cookie === 'd=' ? 200 : 400]);
+      }
+      expect((await request()).status).toBe(200);
+      expect(slack.channels[5]?.cookie).toBe('d=xoxd-qR1%2FsT2%3D');
     } finally {
       slack.restore();
     }
