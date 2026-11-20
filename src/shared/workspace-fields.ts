@@ -33,7 +33,7 @@ export const WORKSPACE_FIELD_GROUPS: readonly WorkspaceFieldGroup[] = [
         name: 'team_id',
         label: 'Team ID',
         placeholder: 'T…',
-        hint: "The workspace's team ID. pip asks Slack whose the bot token is and turns it down, naming its team, if it isn't this one.",
+        hint: "The workspace's team ID: with the workspace open in a browser, the address is app.slack.com/client/T…/C…, and it is the part beginning with T. pip asks Slack whose the bot token is and turns it down, naming its team, if it isn't this one.",
         required: true,
         secret: false,
       },
