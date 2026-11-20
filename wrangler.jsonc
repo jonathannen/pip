@@ -53,6 +53,8 @@
   // SLACK_CLIENT_TOKEN and SLACK_D_COOKIE are optional: the create_code_channel MCP tool uses them (a browser session's
   // xoxc token and d cookie, src/lib/code-channel.ts); without them the tool reports that it's off.
   // GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET are optional too: the Gmail draft tools use them (src/lib/gmail.ts).
+  // PIP_SECRETS_KEY is optional as well: base64 of 32 random bytes, the key the secrets of the workspaces added on
+  // Settings are encrypted under in D1 (src/worker/workspaces.ts). Without it there is the home workspace only.
   "secrets": {
     "required": ["SLACK_SIGNING_SECRET", "SLACK_BOT_TOKEN"]
   }

@@ -1,7 +1,7 @@
 import { createFileRoute, getRouteApi } from '@tanstack/react-router';
 import type { FormEvent } from 'react';
-import { useState } from 'react';
-import type { CodeChannelResult, CodeModel } from '../../shared/api';
+import { useEffect, useState } from 'react';
+import type { CodeChannelResult, CodeModel, SlackWorkspaces } from '../../shared/api';
 import { CODE_CHANNEL_PREAMBLE, CODE_MODELS, DEFAULT_CODE_MODEL } from '../../shared/api';
 import styles from './code.module.css';
 
@@ -16,9 +16,20 @@ function Code() {
   const [isPrivate, setIsPrivate] = useState(true);
   const [addPreamble, setAddPreamble] = useState(true);
   const [model, setModel] = useState<CodeModel>(DEFAULT_CODE_MODEL);
+  /** The workspaces to pick from, and the team ID picked; '' is the home one. */
+  const [workspaces, setWorkspaces] = useState<SlackWorkspaces>();
+  const [workspace, setWorkspace] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [launched, setLaunched] = useState<(CodeChannelResult & { key: number })[]>([]);
+
+  // Without the list there is no picker, and the channel is made in the home workspace as ever.
+  useEffect(() => {
+    fetch('/api/workspaces')
+      .then(async (res) => (res.ok ? setWorkspaces(await res.json()) : undefined))
+      .catch(() => undefined);
+  }, []);
+  const home = workspace === '';
 
   async function submit(event: FormEvent) {
     event.preventDefault();
@@ -28,7 +39,13 @@ function Code() {
       const res = await fetch('/api/code-channel', {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ prompt, is_private: isPrivate, add_preamble: addPreamble, model }),
+        body: JSON.stringify({
+          prompt,
+          is_private: isPrivate,
+          add_preamble: addPreamble,
+          model,
+          ...(!home && { workspace }),
+        }),
       });
       const json: unknown = await res.json().catch(() => null);
       if (!res.ok) {
@@ -54,7 +71,7 @@ function Code() {
         Start a Slack code channel: a new channel where the coding agent gets to work on your
         prompt.
       </p>
-      {!me.code_channels_enabled && (
+      {!me.code_channels_enabled && home && (
         <p className={styles.off}>
           Code channels are off: <code>SLACK_CLIENT_TOKEN</code> and <code>SLACK_D_COOKIE</code>{' '}
           aren't set on this Worker.
@@ -64,7 +81,7 @@ function Code() {
         <textarea
           aria-label="Prompt for the coding agent"
           className={styles.prompt}
-          disabled={!me.code_channels_enabled}
+          disabled={!me.code_channels_enabled && home}
           onChange={(event) => setPrompt(event.target.value)}
           onKeyDown={(event) => {
             if (event.key === 'Enter' && (event.metaKey || event.ctrlKey)) {
@@ -76,14 +93,17 @@ function Code() {
           value={prompt}
         />
         <div className={styles.options}>
-          <label className={styles.option}>
-            <input
-              checked={addPreamble}
-              onChange={(event) => setAddPreamble(event.target.checked)}
-              type="checkbox"
-            />
-            Prefix with <code>{CODE_CHANNEL_PREAMBLE.trim()}</code>
-          </label>
+          {/* The preamble names a home repo, so it is only offered there. */}
+          {home && (
+            <label className={styles.option}>
+              <input
+                checked={addPreamble}
+                onChange={(event) => setAddPreamble(event.target.checked)}
+                type="checkbox"
+              />
+              Prefix with <code>{CODE_CHANNEL_PREAMBLE.trim()}</code>
+            </label>
+          )}
           <label className={styles.option}>
             <input
               checked={isPrivate}
@@ -106,9 +126,30 @@ function Code() {
               ))}
             </select>
           </label>
+          {workspaces && workspaces.workspaces.length > 0 && (
+            <label className={styles.option}>
+              Workspace
+              <select
+                className={styles.select}
+                onChange={(event) => setWorkspace(event.target.value)}
+                value={workspace}
+              >
+                <option value="">{workspaces.home.workspace}</option>
+                {workspaces.workspaces.map((item) => (
+                  <option
+                    disabled={!item.code_channels_enabled}
+                    key={item.team_id}
+                    value={item.team_id}
+                  >
+                    {item.label}
+                  </option>
+                ))}
+              </select>
+            </label>
+          )}
           <button
             className={styles.launch}
-            disabled={busy || !me.code_channels_enabled || prompt.trim() === ''}
+            disabled={busy || (!me.code_channels_enabled && home) || prompt.trim() === ''}
             type="submit"
           >
             {busy ? 'Starting…' : 'Launch'}

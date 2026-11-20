@@ -20,6 +20,8 @@ export default defineConfig({
           SLACK_D_COOKIE: 'xoxd-test',
           GOOGLE_CLIENT_ID: 'google-client-id',
           GOOGLE_CLIENT_SECRET: 'google-client-secret',
+          // Base64 of 32 bytes, as PIP_SECRETS_KEY is.
+          PIP_SECRETS_KEY: 'cGlwLXRlc3Qtc2VjcmV0cy1rZXktMzItYnl0ZXMhISE=',
           TEST_MIGRATIONS: migrations,
         },
       },

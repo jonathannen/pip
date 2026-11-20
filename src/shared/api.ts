@@ -66,6 +66,8 @@ export interface CodeChannelRequest {
   readonly is_private?: boolean;
   readonly add_preamble?: boolean;
   readonly model?: CodeModel;
+  /** The team ID of the workspace to make it in, from `GET /api/workspaces`; the home one when unset. */
+  readonly workspace?: string;
 }
 
 /** What creating a code channel gives back, on the API, the MCP tool and `/cc` alike. */
@@ -78,4 +80,55 @@ export interface CodeChannelResult {
   readonly url: string | null;
   /** Slack's raw response, for everything else it says. */
   readonly response: Record<string, unknown>;
+}
+
+/** A Slack workspace besides the home one, as Settings shows it: its row without the secrets. */
+export interface SlackWorkspace {
+  readonly team_id: string;
+  readonly label: string;
+  /** Its host's subdomain: `<workspace>.slack.com`. */
+  readonly workspace: string;
+  /** The member ID pip answers there. */
+  readonly owner_user_id: string;
+  /** Bots that may say `@pip cc` there: member or bot IDs, comma-separated. */
+  readonly cc_bot_ids: string;
+  /** The app code channels are made with there; null when not set. */
+  readonly code_app_id: string | null;
+  /** Whether a browser session's xoxc token and d cookie are stored. They are never sent back. */
+  readonly client_token_set: boolean;
+  readonly d_cookie_set: boolean;
+  /** Whether code channels and `/sitrep` work there: the app ID and both of the above are set. */
+  readonly code_channels_enabled: boolean;
+  readonly created_at: string;
+  readonly updated_at: string;
+}
+
+/** `GET /api/workspaces`: the home workspace and the ones added on Settings. */
+export interface SlackWorkspaces {
+  /** PIP_SECRETS_KEY, which the stored secrets are encrypted under: set and a key, unset, or not a key. */
+  readonly secrets_key: 'ok' | 'unset' | 'invalid';
+  /** The home workspace, from the Worker's vars and secrets. */
+  readonly home: {
+    readonly team_id: string;
+    readonly workspace: string;
+    readonly code_channels_enabled: boolean;
+  };
+  readonly workspaces: readonly SlackWorkspace[];
+}
+
+/**
+ * `POST /api/workspaces` and `PUT /api/workspaces/:team_id`. The four secrets are write-only; on a
+ * PUT, one left out or blank keeps what is stored, and `team_id` is the URL's.
+ */
+export interface SlackWorkspaceInput {
+  readonly team_id?: string;
+  readonly label: string;
+  readonly workspace: string;
+  readonly owner_user_id: string;
+  readonly cc_bot_ids?: string;
+  readonly code_app_id?: string;
+  readonly bot_token?: string;
+  readonly signing_secret?: string;
+  readonly client_token?: string;
+  readonly d_cookie?: string;
 }
