@@ -1411,6 +1411,55 @@ describe('workspaces', () => {
     }
   });
 
+  it("takes a workspace as application/json only, so not from another site's form", async () => {
+    await addSecond();
+    const slack = mockSlack();
+    try {
+      const third = { ...SECOND, team_id: 'T0THIRD001', bot_token: 'xoxb-third-bot' };
+      const json = JSON.stringify(third);
+      // What a form on another site can send with no preflight: JSON as text/plain (the form's
+      // `name=value` and line end, made to fall inside a string), or form-encoded.
+      const asForm = `${JSON.stringify({ ...third, x: '' }).slice(0, -2)}="}\r\n`;
+      expect(JSON.parse(asForm)).toMatchObject(third);
+      for (const [type, body] of [
+        ['text/plain', json],
+        ['text/plain', asForm],
+        ['text/plain;charset=UTF-8', json],
+        ['application/x-www-form-urlencoded', json],
+        ['multipart/form-data; boundary=x', json],
+        [undefined, json],
+      ] as const) {
+        const headers: Record<string, string> = type ? { 'content-type': type } : {};
+        for (const [method, path] of [
+          ['POST', 'workspaces'],
+          ['PUT', 'workspaces/T0SECOND01'],
+        ] as const) {
+          // A Blob has no type of its own, so the request has the header's or none.
+          const res = await worker.fetch(`http://pip/api/${path}`, {
+            method,
+            headers,
+            body: new Blob([body]),
+          });
+          expect([res.status, type, method]).toEqual([415, type, method]);
+        }
+      }
+      // Nothing was added, changed or even asked of Slack.
+      const stored = await env.DB.prepare(
+        'SELECT team_id, label FROM slack_workspaces ORDER BY team_id',
+      ).all();
+      expect(stored.results).toEqual([{ team_id: 'T0SECOND01', label: 'Second' }]);
+
+      const res = await worker.fetch('http://pip/api/workspaces', {
+        method: 'POST',
+        headers: { 'content-type': 'Application/JSON; charset=utf-8' },
+        body: json,
+      });
+      expect(res.status).toBe(201);
+    } finally {
+      slack.restore();
+    }
+  });
+
   it('says so, and keeps nothing, when PIP_SECRETS_KEY is unset or not a key', async () => {
     await env.DB.exec('DELETE FROM slack_workspaces');
     const secrets = env as { PIP_SECRETS_KEY?: string };

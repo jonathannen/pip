@@ -1,6 +1,7 @@
 import { env } from 'cloudflare:workers';
 import type { Context } from 'hono';
 import { Hono } from 'hono';
+import { createMiddleware } from 'hono/factory';
 import { codeChannelsEnabled, launchCodeChannel } from '../lib/code-channel';
 import { gmailEnabled } from '../lib/gmail';
 import type {
@@ -27,6 +28,20 @@ import {
   slackEnvForRequest,
   WorkspaceError,
 } from './workspaces';
+
+/**
+ * Lets through `application/json` bodies only (415 otherwise). Access signs a browser in with a
+ * cookie, and a page on another site can make that browser post a form here, with a body shaped
+ * like JSON under `text/plain`. It can't send `application/json` without a preflight, which this
+ * Worker never allows, so asking for it keeps a forged form out.
+ */
+const jsonOnly = createMiddleware(async (c, next) => {
+  const type = c.req.header('content-type')?.split(';')[0]?.trim().toLowerCase();
+  if (type !== 'application/json') {
+    return c.json({ error: 'content-type must be application/json' }, 415);
+  }
+  await next();
+});
 
 const api = new Hono<{ Variables: { identity: Identity } }>()
   .use(requireAccess)
@@ -92,8 +107,9 @@ const api = new Hono<{ Variables: { identity: Identity } }>()
     }
   })
   // Settings' Workspaces: the Slack workspaces besides the home one. No secret is ever sent back.
+  // A write names who pip answers in a workspace, so it is not taken from another site's form.
   .get('/workspaces', async (c) => c.json<SlackWorkspaces>(await listWorkspaces()))
-  .post('/workspaces', async (c) => {
+  .post('/workspaces', jsonOnly, async (c) => {
     try {
       const json: unknown = await c.req.json().catch(() => null);
       return c.json<SlackWorkspace>(await saveWorkspace(json), 201);
@@ -101,7 +117,7 @@ const api = new Hono<{ Variables: { identity: Identity } }>()
       return workspaceError(c, error);
     }
   })
-  .put('/workspaces/:team_id', async (c) => {
+  .put('/workspaces/:team_id', jsonOnly, async (c) => {
     try {
       const json: unknown = await c.req.json().catch(() => null);
       return c.json<SlackWorkspace>(await saveWorkspace(json, c.req.param('team_id')));
