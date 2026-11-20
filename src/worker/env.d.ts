@@ -10,6 +10,11 @@ declare global {
       GOOGLE_CLIENT_ID?: string;
       /** Its client secret. */
       GOOGLE_CLIENT_SECRET?: string;
+      /**
+       * Base64 of 32 random bytes: the key the secrets of the Slack workspaces added on Settings
+       * are encrypted under in D1 (src/lib/secrets.ts, src/worker/workspaces.ts).
+       */
+      PIP_SECRETS_KEY?: string;
     }
   }
 }

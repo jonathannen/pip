@@ -22,6 +22,14 @@ export interface CodeChannelEnv {
 
 const DEFAULTS = { workspace: 'pynhq', teamId: 'TH0RA7683', codeAppId: 'A08SF47R6P4' };
 
+/**
+ * Finds the env of the workspace with a team ID, and whether it is the home one. Throws, saying
+ * why, when there is no such workspace or code channels aren't set up in it.
+ */
+export type CodeChannelWorkspaces = (
+  teamId: string,
+) => Promise<{ readonly env: CodeChannelEnv; readonly home: boolean }>;
+
 type SlackResponse = { ok: boolean; error?: string; [key: string]: unknown };
 
 /** Whether the browser-session secrets are set, so channels can be created. */
@@ -107,14 +115,17 @@ function findChannelId(response: Record<string, unknown>): string | null {
 
 /**
  * Creates a code channel with the same options the MCP tool takes, applying the defaults and the
- * preamble. Throws when the secrets are missing or Slack says no.
+ * preamble. Throws when the secrets are missing or Slack says no. `env` is the workspace it is
+ * made in (`request.workspace` is not read here); the preamble names a home repo, so outside the
+ * home workspace it is left off.
  */
 export async function launchCodeChannel(
   env: CodeChannelEnv,
   request: CodeChannelRequest,
+  home = true,
 ): Promise<CodeChannelResult> {
   const { is_private = true, add_preamble = true, model = DEFAULT_CODE_MODEL } = request;
-  const prompt = add_preamble ? CODE_CHANNEL_PREAMBLE + request.prompt : request.prompt;
+  const prompt = add_preamble && home ? CODE_CHANNEL_PREAMBLE + request.prompt : request.prompt;
   const response = await createCodeChannel(env, prompt, is_private, model);
   const channelId = findChannelId(response);
   const workspace = env.SLACK_WORKSPACE || DEFAULTS.workspace;
@@ -127,8 +138,15 @@ export async function launchCodeChannel(
   };
 }
 
-/** The `create_code_channel` tool, on the Worker's MCP server and the stdio one alike. */
-export function registerCodeChannelTool(server: McpServer, env: CodeChannelEnv): void {
+/**
+ * The `create_code_channel` tool, on the Worker's MCP server and the stdio one alike. With
+ * `workspaces` (the Worker's, which has D1) it also takes the workspace to make the channel in.
+ */
+export function registerCodeChannelTool(
+  server: McpServer,
+  env: CodeChannelEnv,
+  workspaces?: CodeChannelWorkspaces,
+): void {
   server.registerTool(
     'create_code_channel',
     {
@@ -146,12 +164,24 @@ export function registerCodeChannelTool(server: McpServer, env: CodeChannelEnv):
           .enum(CODE_MODELS)
           .default(DEFAULT_CODE_MODEL)
           .describe('Model for the coding agent'),
+        ...(workspaces && {
+          workspace: z
+            .string()
+            .optional()
+            .describe(
+              'Team ID (T…) of the Slack workspace to create the channel in, from those on Settings; the home workspace when left out. The preamble is only added in the home workspace',
+            ),
+        }),
       }),
       annotations: { openWorldHint: true },
     },
-    async (request) => {
+    async ({ workspace, ...request }) => {
       try {
-        const result = await launchCodeChannel(env, request);
+        const target =
+          workspaces && typeof workspace === 'string'
+            ? await workspaces(workspace)
+            : { env, home: true };
+        const result = await launchCodeChannel(target.env, request, target.home);
         return { content: [{ type: 'text', text: JSON.stringify(result, null, 2) }] };
       } catch (error) {
         return {

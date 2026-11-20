@@ -1,13 +1,19 @@
 import { SlackApp } from 'slack-edge';
+import type { CodeChannelEnv } from '../lib/code-channel';
 import { callClientApi, codeChannelsEnabled, launchCodeChannel } from '../lib/code-channel';
+import type { SlackCommand } from '../shared/slack-manifest';
 import { addNote, listNotes, parseNoteBody } from './notes';
 
 /**
  * Slack signs every request; slack-edge rejects anything unsigned. Only the owner gets answers;
  * everyone else gets nothing. The one exception is `@pip cc`, which the bots named in
  * SLACK_CC_BOT_IDS may also say; `cc` in a DM, with no mention, is the owner's alone.
+ *
+ * `env` is one workspace's: the Worker's own for the home workspace, or one made from a
+ * `slack_workspaces` row (src/worker/workspaces.ts), with `home` false. What a request starts, it
+ * starts in the workspace it came from.
  */
-export function slack(env: Env) {
+export function slack(env: SlackEnv, home = true) {
   const app = new SlackApp({ env, routes: { events: '/slack/events' } });
   return (
     app
@@ -35,7 +41,7 @@ export function slack(env: Env) {
             return;
           }
           await context.say({
-            text: await answerCc(env, prompt, CC_MENTION_USAGE),
+            text: await answerCc(env, prompt, ccUsage('@pip cc', home), home),
             thread_ts: payload.thread_ts ?? payload.ts,
           });
           return;
@@ -65,7 +71,7 @@ export function slack(env: Env) {
         try {
           let answer: string;
           if (prompt !== undefined) {
-            answer = await answerCc(env, prompt, CC_DM_USAGE);
+            answer = await answerCc(env, prompt, ccUsage('cc', home), home);
           } else {
             answer = owner ? await reply(text, `slack:${payload.user}`) : echo(text);
           }
@@ -84,7 +90,7 @@ export function slack(env: Env) {
         }
       })
       // `/pip <text>`, the same as a DM, answered only to you.
-      .command('/pip', async ({ payload }) => {
+      .command(command('/pip'), async ({ payload }) => {
         if (payload.user_id !== env.SLACK_OWNER_USER_ID) {
           return;
         }
@@ -96,16 +102,16 @@ export function slack(env: Env) {
       // `/cc <prompt>` starts a Slack code channel on the prompt. Slack wants an answer within three
       // seconds and creating the channel can take longer, so ack first and post the result after.
       .command(
-        '/cc',
+        command('/cc'),
         async ({ payload }) => {
           if (payload.user_id !== env.SLACK_OWNER_USER_ID) {
             return;
           }
           if (payload.text.trim() === '') {
-            return { response_type: 'ephemeral', text: CC_USAGE };
+            return { response_type: 'ephemeral', text: ccUsage('/cc', home) };
           }
           if (!codeChannelsEnabled(env)) {
-            return { response_type: 'ephemeral', text: CC_OFF };
+            return { response_type: 'ephemeral', text: ccOff(home) };
           }
           return { response_type: 'ephemeral', text: ':hourglass: Starting a code channel…' };
         },
@@ -118,14 +124,17 @@ export function slack(env: Env) {
           }
           await context.respond({
             response_type: 'ephemeral',
-            text: await launchFromSlack(env, payload.text),
+            text: await launchFromSlack(env, payload.text, {
+              usage: ccUsage('/cc', home),
+              hints: home,
+            }),
           });
         },
       )
       // `/sitrep` asks every channel in the owner's "Scheduled" sidebar section for its status, as
       // the owner. Ack first and post the result after, like `/cc`.
       .command(
-        '/sitrep',
+        command('/sitrep'),
         async ({ payload }) => {
           if (payload.user_id !== env.SLACK_OWNER_USER_ID) {
             return;
@@ -133,7 +142,9 @@ export function slack(env: Env) {
           if (!codeChannelsEnabled(env)) {
             return {
               response_type: 'ephemeral',
-              text: 'Sitrep is off: SLACK_CLIENT_TOKEN / SLACK_D_COOKIE are not set.',
+              text: home
+                ? 'Sitrep is off: SLACK_CLIENT_TOKEN / SLACK_D_COOKIE are not set.'
+                : `Sitrep is not set up for this workspace. ${SET_UP_HERE}`,
             };
           }
           return { response_type: 'ephemeral', text: ':hourglass: Asking the Scheduled channels…' };
@@ -149,8 +160,22 @@ export function slack(env: Env) {
 }
 
 /**
+ * A slash command's name. It has to be one the app's manifest declares (SLACK_COMMANDS), so the
+ * manifest Settings hands out can't fall behind the commands answered here.
+ */
+const command = (name: SlackCommand) => name;
+
+/** One workspace's Slack app and what it may do, under the env's names. */
+export interface SlackEnv extends CodeChannelEnv {
+  readonly SLACK_SIGNING_SECRET: string;
+  readonly SLACK_BOT_TOKEN: string;
+  readonly SLACK_OWNER_USER_ID: string;
+  readonly SLACK_CC_BOT_IDS?: string | undefined;
+}
+
+/**
  * First words of a `/cc` prompt that stand for a repo, or a place in one, and the hint each puts
- * before the rest of the prompt.
+ * before the rest of the prompt. They name the home workspace's repos, so they are read there only.
  */
 const CC_HINTS: Record<string, string> = {
   web: 'In the ponhq/pynhq.com repo: ',
@@ -161,12 +186,17 @@ const CC_HINTS: Record<string, string> = {
 const CC_HINT_WORDS = Object.keys(CC_HINTS);
 const CC_HINT_WORD = new RegExp(`^(${CC_HINT_WORDS.join('|')})\\s+(?=\\S)`, 'i');
 
-const ccUsage = (say: string) =>
-  `Say \`${say} <prompt>\` to start a code channel on the prompt. Begin with \`public:\` for a public channel. A first word of ${CC_HINT_WORDS.map((word) => `\`${word}\``).join(', ')} says which repo.`;
+const ccUsage = (say: string, hints = true) =>
+  `Say \`${say} <prompt>\` to start a code channel on the prompt. Begin with \`public:\` for a public channel.${hints ? ` A first word of ${CC_HINT_WORDS.map((word) => `\`${word}\``).join(', ')} says which repo.` : ''}`;
 export const CC_USAGE = ccUsage('/cc');
 export const CC_MENTION_USAGE = ccUsage('@pip cc');
 export const CC_DM_USAGE = ccUsage('cc');
 const CC_OFF = 'Code channels are off: SLACK_CLIENT_TOKEN / SLACK_D_COOKIE are not set.';
+/** What a workspace from Settings is missing when code channels and `/sitrep` are off in it. */
+const SET_UP_HERE =
+  "Add its browser session (client token and d cookie) and code app ID on pip's Settings page.";
+const ccOff = (home: boolean) =>
+  home ? CC_OFF : `Code channels are not set up for this workspace. ${SET_UP_HERE}`;
 
 /**
  * The prompt in `@pip cc <prompt>`: the mention of pip first, then `cc <prompt>` as parseCc reads
@@ -206,14 +236,15 @@ async function answerCc(
   env: Parameters<typeof launchCodeChannel>[0],
   prompt: string,
   usage: string,
+  home: boolean,
 ): Promise<string> {
   if (prompt === '') {
     return usage;
   }
   if (!codeChannelsEnabled(env)) {
-    return CC_OFF;
+    return ccOff(home);
   }
-  return launchFromSlack(env, prompt, { usage, echo: false });
+  return launchFromSlack(env, prompt, { usage, echo: false, hints: home });
 }
 
 /**
@@ -249,12 +280,17 @@ export function withCcHint(prompt: string): string {
  * `/cc` text: an optional `public:` prefix, then the prompt, sent as it is with no preamble, bar a
  * first word in CC_HINTS (see withCcHint). A `raw:` prefix, which used to skip the preamble, is
  * still taken off and does nothing. Replies with a link to the channel, or what went wrong; with
- * `usage` when there is no prompt. `echo` says whether the reply repeats the prompt.
+ * `usage` when there is no prompt. `echo` says whether the reply repeats the prompt; `hints`
+ * whether CC_HINTS are read, which they are in the home workspace only.
  */
 export async function launchFromSlack(
   env: Parameters<typeof launchCodeChannel>[0],
   text: string,
-  { usage = CC_USAGE, echo = true }: { usage?: string; echo?: boolean } = {},
+  {
+    usage = CC_USAGE,
+    echo = true,
+    hints = true,
+  }: { usage?: string; echo?: boolean; hints?: boolean } = {},
 ): Promise<string> {
   let prompt = text.trim();
   let isPrivate = true;
@@ -273,7 +309,7 @@ export async function launchFromSlack(
   }
   try {
     const result = await launchCodeChannel(env, {
-      prompt: withCcHint(prompt),
+      prompt: hints ? withCcHint(prompt) : prompt,
       is_private: isPrivate,
       add_preamble: false,
     });

@@ -1,7 +1,14 @@
 import { createFileRoute, getRouteApi, Link } from '@tanstack/react-router';
+import type { FormEvent } from 'react';
 import { useEffect, useState } from 'react';
-import type { Deployment } from '../../shared/api';
+import type {
+  Deployment,
+  SlackWorkspace,
+  SlackWorkspaceInput,
+  SlackWorkspaces,
+} from '../../shared/api';
 import { CODE_CHANNEL_PREAMBLE, CODE_MODELS, DEFAULT_CODE_MODEL } from '../../shared/api';
+import { slackManifest } from '../../shared/slack-manifest';
 import styles from './settings.module.css';
 
 const root = getRouteApi('__root__');
@@ -157,8 +164,261 @@ function Settings() {
         </div>
       </section>
 
+      <WorkspacesSection />
+
       <DeployedSection />
     </>
+  );
+}
+
+type WorkspaceForm = Required<SlackWorkspaceInput>;
+
+const EMPTY_WORKSPACE: WorkspaceForm = {
+  team_id: '',
+  label: '',
+  workspace: '',
+  owner_user_id: '',
+  cc_bot_ids: '',
+  code_app_id: '',
+  bot_token: '',
+  signing_secret: '',
+  client_token: '',
+  d_cookie: '',
+};
+
+/** The form's plain fields: the name, its label and what to put in it. */
+const WORKSPACE_FIELDS = [
+  ['team_id', 'Team ID', 'T…'],
+  ['label', 'Label', 'What to call it'],
+  ['workspace', 'Host', 'acme, as in acme.slack.com'],
+  ['owner_user_id', 'Owner', 'Your member ID there (U…): the one pip answers'],
+  ['cc_bot_ids', 'cc bots', 'Bots that may say @pip cc: member or bot IDs, comma-separated'],
+  ['code_app_id', 'Code app ID', 'A…, for code channels'],
+] as const;
+
+/** The secrets: write-only, so their fields start empty and are never filled from the server. */
+const WORKSPACE_SECRETS = [
+  ['bot_token', 'Bot token', 'xoxb-…'],
+  ['signing_secret', 'Signing secret', "The app's signing secret"],
+  ['client_token', 'Client token', 'xoxc-…, for code channels and /sitrep'],
+  ['d_cookie', 'd cookie', 'xoxd-…, for code channels and /sitrep'],
+] as const;
+
+const SET_SECRETS_KEY = 'openssl rand -base64 32 | pnpm wrangler secret put PIP_SECRETS_KEY';
+
+async function fetchWorkspaces(): Promise<SlackWorkspaces> {
+  const res = await fetch('/api/workspaces');
+  if (!res.ok) {
+    throw new Error(`/api/workspaces ${res.status}`);
+  }
+  return res.json();
+}
+
+/** What a failed request said went wrong: the API's `error`, else the status. */
+async function apiError(res: Response): Promise<string> {
+  const json: unknown = await res.json().catch(() => null);
+  return json !== null && typeof json === 'object' && 'error' in json
+    ? String((json as { error: unknown }).error)
+    : `HTTP ${res.status}`;
+}
+
+/**
+ * The Slack workspaces pip answers in: the home one, from the Worker's vars and secrets, and any
+ * added here, each with a Slack app made by hand in it. Their secrets go in and never come back.
+ */
+function WorkspacesSection() {
+  const [data, setData] = useState<SlackWorkspaces>();
+  const [error, setError] = useState<string>();
+  /** The open form, and the workspace it changes; a new one when there is a form and no `editing`. */
+  const [form, setForm] = useState<WorkspaceForm>();
+  const [editing, setEditing] = useState<SlackWorkspace>();
+  const [busy, setBusy] = useState(false);
+
+  const fail = (err: unknown) => setError(err instanceof Error ? err.message : String(err));
+
+  useEffect(() => {
+    fetchWorkspaces()
+      .then(setData)
+      .catch((err: unknown) => setError(err instanceof Error ? err.message : String(err)));
+  }, []);
+
+  function open(workspace?: SlackWorkspace) {
+    setError(undefined);
+    setEditing(workspace);
+    setForm(
+      workspace
+        ? { ...EMPTY_WORKSPACE, ...workspace, code_app_id: workspace.code_app_id ?? '' }
+        : EMPTY_WORKSPACE,
+    );
+  }
+
+  async function submit(event: FormEvent) {
+    event.preventDefault();
+    if (!form) {
+      return;
+    }
+    setBusy(true);
+    setError(undefined);
+    try {
+      const res = await fetch(editing ? `/api/workspaces/${editing.team_id}` : '/api/workspaces', {
+        method: editing ? 'PUT' : 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify(
+          Object.fromEntries(
+            [...WORKSPACE_FIELDS, ...WORKSPACE_SECRETS].map(([name]) => [name, form[name]]),
+          ),
+        ),
+      });
+      if (!res.ok) {
+        throw new Error(await apiError(res));
+      }
+      setForm(undefined);
+      setData(await fetchWorkspaces());
+    } catch (err) {
+      fail(err);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function remove(workspace: SlackWorkspace) {
+    if (!window.confirm(`Delete ${workspace.label} and its stored secrets?`)) {
+      return;
+    }
+    setError(undefined);
+    try {
+      const res = await fetch(`/api/workspaces/${workspace.team_id}`, { method: 'DELETE' });
+      if (!res.ok) {
+        throw new Error(await apiError(res));
+      }
+      setForm(undefined);
+      setData(await fetchWorkspaces());
+    } catch (err) {
+      fail(err);
+    }
+  }
+
+  const keyOk = data?.secrets_key === 'ok';
+  return (
+    <section className={styles.section}>
+      <div className={styles.sectionHead}>
+        <div>
+          <h2>Workspaces</h2>
+          <p>
+            The Slack workspaces pip answers in. What you ask in one is done in that one. The home
+            workspace is this Worker's vars and secrets; another is a Slack app made by hand in it,
+            added here.
+          </p>
+        </div>
+        {keyOk && !form && (
+          <button onClick={() => open()} type="button">
+            Add a workspace
+          </button>
+        )}
+      </div>
+      {data && !keyOk && (
+        <p className={styles.notice}>
+          {data.secrets_key === 'unset' ? (
+            <>
+              <code>PIP_SECRETS_KEY</code> is not set, so no workspace can be added or used: it is
+              the key their secrets are encrypted under in D1.
+            </>
+          ) : (
+            <>
+              <code>PIP_SECRETS_KEY</code> is not base64 of exactly 32 bytes, so no workspace can be
+              added or used.
+            </>
+          )}{' '}
+          Set it once with <code>{SET_SECRETS_KEY}</code>
+        </p>
+      )}
+      {data && (
+        <ul className={styles.workspaces}>
+          <li>
+            <span>
+              <b>{data.home.workspace}</b>
+              <span className={styles.muted}>Home</span>
+            </span>
+            <span className={styles.muted}>
+              <span className={styles.mono}>{data.home.team_id}</span> · code channels{' '}
+              {data.home.code_channels_enabled ? 'on' : 'off'}
+            </span>
+          </li>
+          {data.workspaces.map((workspace) => (
+            <li key={workspace.team_id}>
+              <span>
+                <b>{workspace.label}</b>
+                <span className={styles.muted}>{workspace.workspace}.slack.com</span>
+              </span>
+              <span className={styles.muted}>
+                <span className={styles.mono}>{workspace.team_id}</span> · owner{' '}
+                <span className={styles.mono}>{workspace.owner_user_id}</span> · code channels{' '}
+                {workspace.code_channels_enabled ? 'on' : 'off'}
+              </span>
+              <span className={styles.actions}>
+                {keyOk && (
+                  <button className={styles.quiet} onClick={() => open(workspace)} type="button">
+                    Edit
+                  </button>
+                )}
+                <button className={styles.quiet} onClick={() => remove(workspace)} type="button">
+                  Delete
+                </button>
+              </span>
+            </li>
+          ))}
+        </ul>
+      )}
+      <SlackManifest />
+      {form && (
+        <form className={styles.form} onSubmit={submit}>
+          {WORKSPACE_FIELDS.map(([name, label, hint]) => (
+            <label key={name}>
+              {label}
+              <input
+                autoCapitalize="off"
+                autoComplete="off"
+                disabled={name === 'team_id' && editing !== undefined}
+                onChange={(event) => setForm({ ...form, [name]: event.target.value })}
+                placeholder={hint}
+                spellCheck={false}
+                value={form[name]}
+              />
+            </label>
+          ))}
+          {WORKSPACE_SECRETS.map(([name, label, hint]) => {
+            const stored =
+              editing !== undefined &&
+              (name === 'client_token'
+                ? editing.client_token_set
+                : name === 'd_cookie'
+                  ? editing.d_cookie_set
+                  : true);
+            return (
+              <label key={name}>
+                {label}
+                <input
+                  autoComplete="new-password"
+                  onChange={(event) => setForm({ ...form, [name]: event.target.value })}
+                  placeholder={stored ? 'Stored. Leave blank to keep it' : hint}
+                  type="password"
+                  value={form[name]}
+                />
+              </label>
+            );
+          })}
+          <span className={styles.actions}>
+            <button disabled={busy} type="submit">
+              {busy ? 'Saving…' : editing ? 'Save' : 'Add'}
+            </button>
+            <button className={styles.quiet} onClick={() => setForm(undefined)} type="button">
+              Cancel
+            </button>
+          </span>
+        </form>
+      )}
+      {error && <p className={styles.error}>{error}</p>}
+    </section>
   );
 }
 
@@ -247,5 +507,40 @@ function DeployedSection() {
         </dl>
       )}
     </section>
+  );
+}
+
+/**
+ * The manifest to make pip's Slack app from in another workspace: paste it into Slack, install the
+ * app, then add the workspace above. It is the same for every workspace, and has no secret in it.
+ */
+function SlackManifest() {
+  const manifest = JSON.stringify(slackManifest(window.location.origin), null, 2);
+  const [copied, setCopied] = useState(false);
+  return (
+    <details className={styles.manifest}>
+      <summary>Slack app manifest</summary>
+      <p>
+        To make pip's Slack app in another workspace,{' '}
+        <a href="https://api.slack.com/apps?new_app=1" rel="noreferrer" target="_blank">
+          create an app
+        </a>{' '}
+        from a manifest and paste this in. Install it, add the workspace here, then verify the
+        Request URL in Slack.
+      </p>
+      <textarea aria-label="Slack app manifest" readOnly rows={12} value={manifest} />
+      <button
+        className={styles.quiet}
+        onClick={() =>
+          navigator.clipboard.writeText(manifest).then(
+            () => setCopied(true),
+            () => setCopied(false),
+          )
+        }
+        type="button"
+      >
+        {copied ? 'Copied' : 'Copy'}
+      </button>
+    </details>
   );
 }

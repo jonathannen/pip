@@ -15,6 +15,7 @@ import {
 import { NOTE_MAX_LENGTH } from '../../shared/api';
 import { getRefreshToken } from '../google';
 import { addNote, deleteNote, listNotes, parseNoteBody } from '../notes';
+import { codeChannelWorkspace } from '../workspaces';
 
 const text = (value: unknown) => ({
   content: [{ type: 'text' as const, text: JSON.stringify(value) }],
@@ -86,7 +87,7 @@ export const core: McpServerFactory = ({ authInfo }) => {
     async ({ name }) => ({ content: [{ type: 'text', text: `Hello, ${name}!` }] }),
   );
 
-  registerCodeChannelTool(server, env);
+  registerCodeChannelTool(server, env, codeChannelWorkspace);
 
   server.registerTool(
     'notes_list',

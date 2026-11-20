@@ -1130,3 +1130,753 @@ describe('cc in a DM', () => {
     expect(again.posts).toEqual([]);
   });
 });
+
+describe('secrets', () => {
+  const keyOf = (byte: number, length = 32) => new Uint8Array(length).fill(byte).toBase64();
+
+  it('reads back what it stored, under a fresh IV each time', async () => {
+    const { decryptSecret, encryptSecret, importSecretsKey } = await import('../src/lib/secrets');
+    const key = await importSecretsKey(keyOf(1));
+    const stored = await encryptSecret(key, 'xoxb-the-token', 'T0SECOND01:bot_token');
+    expect(stored).toMatch(/^v1:[A-Za-z0-9+/]{16}:[A-Za-z0-9+/=]+$/);
+    expect(stored).not.toContain('xoxb');
+    expect(await decryptSecret(key, stored, 'T0SECOND01:bot_token')).toBe('xoxb-the-token');
+    expect(await encryptSecret(key, 'xoxb-the-token', 'T0SECOND01:bot_token')).not.toBe(stored);
+  });
+
+  it('refuses a changed value, another key, and another team or column', async () => {
+    const { decryptSecret, encryptSecret, importSecretsKey } = await import('../src/lib/secrets');
+    const key = await importSecretsKey(keyOf(1));
+    const stored = await encryptSecret(key, 'xoxb-the-token', 'T0SECOND01:bot_token');
+    const [version, iv = '', sealed = ''] = stored.split(':');
+    const flipped = Uint8Array.fromBase64(sealed);
+    flipped[0] = (flipped[0] ?? 0) ^ 1;
+    const otherIv = new Uint8Array(12).toBase64();
+    for (const [using, value, context] of [
+      [key, `${version}:${iv}:${flipped.toBase64()}`, 'T0SECOND01:bot_token'],
+      [key, `${version}:${otherIv}:${sealed}`, 'T0SECOND01:bot_token'],
+      [await importSecretsKey(keyOf(2)), stored, 'T0SECOND01:bot_token'],
+      [key, stored, 'T0THIRD001:bot_token'],
+      [key, stored, 'T0SECOND01:signing_secret'],
+      [key, `v2:${iv}:${sealed}`, 'T0SECOND01:bot_token'],
+      [key, 'xoxb-the-token', 'T0SECOND01:bot_token'],
+    ] as const) {
+      const error = await decryptSecret(using, value, context).catch((e: Error) => e);
+      expect(error).toBeInstanceOf(Error);
+      expect((error as Error).message).not.toContain(sealed);
+    }
+  });
+
+  it('takes only base64 of exactly 32 bytes as the key', async () => {
+    const { importSecretsKey } = await import('../src/lib/secrets');
+    for (const bad of ['', 'not base64!', keyOf(1, 16), keyOf(1, 31), keyOf(1, 33)]) {
+      await expect(importSecretsKey(bad)).rejects.toThrow('PIP_SECRETS_KEY');
+    }
+    expect((await importSecretsKey(` ${keyOf(1)}\n`)).algorithm).toMatchObject({ length: 256 });
+  });
+});
+
+describe('workspaces', () => {
+  const owner = env.SLACK_OWNER_USER_ID;
+
+  /** A second workspace as Settings' form sends it. Its last four fields are the secrets. */
+  const SECOND = {
+    team_id: 'T0SECOND01',
+    label: 'Second',
+    workspace: 'second',
+    owner_user_id: 'U0OWNER002',
+    cc_bot_ids: 'U0BOT00002, B0BOT00002',
+    code_app_id: 'A0SECOND01',
+    bot_token: 'xoxb-second-bot',
+    signing_secret: 'second-signing-secret',
+    client_token: 'xoxc-second-client',
+    d_cookie: 'xoxd-second-cookie',
+  };
+  const SECRETS = ['bot_token', 'signing_secret', 'client_token', 'd_cookie'] as const;
+
+  /**
+   * Stands in for Slack. `xoxb-second-bot` is the second workspace's bot token, `xoxb-third-bot`
+   * a third's, and any other the home one's. Gives the code channels started and the messages
+   * posted, each with the credentials it was sent with.
+   */
+  function mockSlack() {
+    const channels: Record<string, string | null>[] = [];
+    const posts: Record<string, string | null>[] = [];
+    const spy = vi.spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => {
+      const request = new Request(input, init);
+      const authorization = request.headers.get('authorization');
+      if (request.url === 'https://slack.com/api/auth.test') {
+        const team_id =
+          authorization === 'Bearer xoxb-second-bot'
+            ? SECOND.team_id
+            : authorization === 'Bearer xoxb-third-bot'
+              ? 'T0THIRD001'
+              : 'T0PIP';
+        return Response.json({ ok: true, team_id, user_id: 'U0PIP', bot_id: 'B0PIP' });
+      }
+      const form = Object.fromEntries(await request.formData()) as Record<string, string>;
+      if (request.url === 'https://slack.com/api/chat.postMessage') {
+        posts.push({ authorization, ...form });
+        return Response.json({ ok: true });
+      }
+      if (request.url.endsWith('/api/client.codeChannels.create')) {
+        channels.push({ url: request.url, cookie: request.headers.get('cookie'), ...form });
+        return Response.json({ ok: true, channel_id: 'C0NEW' });
+      }
+      throw new Error(`unexpected fetch: ${request.url}`);
+    });
+    return { channels, posts, restore: () => spy.mockRestore() };
+  }
+
+  const api = (path: string, method: string, body?: unknown) =>
+    worker.fetch(`http://pip/api/${path}`, {
+      method,
+      headers: { 'content-type': 'application/json' },
+      body: body === undefined ? undefined : JSON.stringify(body),
+    });
+
+  /** Starts over with the second workspace alone, added as Settings adds it. */
+  async function addSecond(overrides: Record<string, unknown> = {}) {
+    await env.DB.exec('DELETE FROM slack_workspaces');
+    // Under the test's own stand-in for Slack when it has one up already.
+    const slack = vi.isMockFunction(globalThis.fetch) ? undefined : mockSlack();
+    try {
+      const res = await api('workspaces', 'POST', { ...SECOND, ...overrides });
+      expect(res.status).toBe(201);
+    } finally {
+      slack?.restore();
+    }
+  }
+
+  /** A request to /slack/events through the Worker, signed with `secret`; waits for what it starts. */
+  async function slackRequest(
+    body: string,
+    secret: string,
+    contentType = 'application/json',
+  ): Promise<Response> {
+    const { default: app } = await import('../src/worker/index');
+    const timestamp = String(Math.floor(Date.now() / 1000));
+    const ctx = createExecutionContext();
+    const res = await app.fetch(
+      new Request('http://pip/slack/events', {
+        method: 'POST',
+        headers: {
+          'content-type': contentType,
+          'x-slack-request-timestamp': timestamp,
+          'x-slack-signature': await slackSignature(secret, timestamp, body),
+        },
+        body,
+      }),
+      env,
+      ctx,
+    );
+    await waitOnExecutionContext(ctx);
+    return res;
+  }
+
+  /** An `app_mention` from a team, as Slack sends it. */
+  const mentionFrom = (team: string, event: Record<string, unknown>) =>
+    JSON.stringify({
+      type: 'event_callback',
+      team_id: team,
+      event_id: 'Ev0TEST',
+      event: { type: 'app_mention', channel: 'C0HERE', ts: '1700000000.000100', ...event },
+    });
+
+  /** A slash command from a team, as Slack sends it. */
+  const commandFrom = (team: string, user: string, command: string, text: string) =>
+    new URLSearchParams({
+      token: 'legacy',
+      team_id: team,
+      team_domain: 'x',
+      channel_id: 'C0HERE',
+      channel_name: 'here',
+      user_id: user,
+      user_name: 'someone',
+      command,
+      text,
+      api_app_id: 'A0PIP',
+      response_url: 'https://hooks.slack.com/commands/x',
+      trigger_id: '1.2.x',
+    }).toString();
+
+  it('adds, lists, changes and deletes a workspace without ever sending a secret back', async () => {
+    await env.DB.exec('DELETE FROM slack_workspaces');
+    const slack = mockSlack();
+    const bodies: string[] = [];
+    try {
+      const created = await api('workspaces', 'POST', SECOND);
+      expect(created.status).toBe(201);
+      bodies.push(await created.clone().text());
+      expect(await created.json()).toMatchObject({
+        team_id: 'T0SECOND01',
+        label: 'Second',
+        workspace: 'second',
+        owner_user_id: 'U0OWNER002',
+        cc_bot_ids: 'U0BOT00002,B0BOT00002',
+        code_app_id: 'A0SECOND01',
+        client_token_set: true,
+        d_cookie_set: true,
+        code_channels_enabled: true,
+      });
+
+      const listed = await api('workspaces', 'GET');
+      bodies.push(await listed.clone().text());
+      expect(await listed.json()).toMatchObject({
+        secrets_key: 'ok',
+        home: { team_id: env.SLACK_TEAM_ID, workspace: 'pynhq', code_channels_enabled: true },
+        workspaces: [{ team_id: 'T0SECOND01', label: 'Second' }],
+      });
+
+      // In D1 each secret is ciphertext, and a different one per column.
+      const row = await env.DB.prepare('SELECT * FROM slack_workspaces').first<
+        Record<string, string>
+      >();
+      for (const column of SECRETS) {
+        expect(row?.[column]).toMatch(/^v1:/);
+        expect(row?.[column]).not.toContain(SECOND[column]);
+      }
+
+      // A change with the secrets left blank keeps them; one given replaces it.
+      const changed = await api('workspaces/T0SECOND01', 'PUT', {
+        ...SECOND,
+        label: 'Renamed',
+        bot_token: '',
+        signing_secret: 'another-signing-secret',
+        client_token: '',
+        d_cookie: undefined,
+      });
+      expect(changed.status).toBe(200);
+      bodies.push(await changed.clone().text());
+      expect(await changed.json()).toMatchObject({ label: 'Renamed', code_channels_enabled: true });
+      const after = await env.DB.prepare('SELECT * FROM slack_workspaces').first<
+        Record<string, string>
+      >();
+      expect(after?.bot_token).toBe(row?.bot_token);
+      expect(after?.client_token).toBe(row?.client_token);
+      expect(after?.d_cookie).toBe(row?.d_cookie);
+      expect(after?.signing_secret).not.toBe(row?.signing_secret);
+
+      for (const body of bodies) {
+        expect(body).not.toContain('v1:');
+        for (const secret of [...SECRETS.map((s) => SECOND[s]), 'another-signing-secret']) {
+          expect(body).not.toContain(secret);
+        }
+        for (const column of SECRETS) {
+          expect(body).not.toContain(`"${column}"`);
+        }
+      }
+
+      expect((await api('workspaces/T0NOSUCH01', 'PUT', SECOND)).status).toBe(404);
+      expect((await api('workspaces/T0SECOND01', 'DELETE')).status).toBe(204);
+      expect((await api('workspaces/T0SECOND01', 'DELETE')).status).toBe(404);
+    } finally {
+      slack.restore();
+    }
+  });
+
+  it('refuses a workspace that is the wrong shape, or whose bot token is another team’s', async () => {
+    await addSecond();
+    const slack = mockSlack();
+    try {
+      const third = { ...SECOND, team_id: 'T0THIRD001', bot_token: 'xoxb-third-bot' };
+      for (const [status, input] of [
+        [400, { ...third, team_id: 'third' }],
+        [400, { ...third, team_id: env.SLACK_TEAM_ID }],
+        [400, { ...third, label: ' ' }],
+        [400, { ...third, workspace: 'evil.example/x' }],
+        [400, { ...third, owner_user_id: 'jon' }],
+        [400, { ...third, cc_bot_ids: 'U0BOT00002,claude' }],
+        [400, { ...third, code_app_id: 'T0THIRD001' }],
+        [400, { ...third, bot_token: '' }],
+        [400, { ...third, bot_token: 'xoxp-a-user-token' }],
+        [400, { ...third, signing_secret: '' }],
+        [400, { ...third, d_cookie: '' }],
+        // Slack says whose the token is: here the second workspace's, not the third's.
+        [400, { ...third, bot_token: SECOND.bot_token }],
+        [409, SECOND],
+        [400, 'not an object'],
+      ] as const) {
+        const res = await api('workspaces', 'POST', input);
+        expect([res.status, input]).toEqual([status, input]);
+        expect(await res.text()).not.toContain('xoxb-third-bot');
+      }
+      const { n } = (await env.DB.prepare('SELECT COUNT(*) AS n FROM slack_workspaces').first<{
+        n: number;
+      }>()) ?? { n: -1 };
+      expect(n).toBe(1);
+      expect((await api('workspaces', 'POST', third)).status).toBe(201);
+    } finally {
+      slack.restore();
+    }
+  });
+
+  it("takes a workspace as application/json only, so not from another site's form", async () => {
+    await addSecond();
+    const slack = mockSlack();
+    try {
+      const third = { ...SECOND, team_id: 'T0THIRD001', bot_token: 'xoxb-third-bot' };
+      const json = JSON.stringify(third);
+      // What a form on another site can send with no preflight: JSON as text/plain (the form's
+      // `name=value` and line end, made to fall inside a string), or form-encoded.
+      const asForm = `${JSON.stringify({ ...third, x: '' }).slice(0, -2)}="}\r\n`;
+      expect(JSON.parse(asForm)).toMatchObject(third);
+      for (const [type, body] of [
+        ['text/plain', json],
+        ['text/plain', asForm],
+        ['text/plain;charset=UTF-8', json],
+        ['application/x-www-form-urlencoded', json],
+        ['multipart/form-data; boundary=x', json],
+        [undefined, json],
+      ] as const) {
+        const headers: Record<string, string> = type ? { 'content-type': type } : {};
+        for (const [method, path] of [
+          ['POST', 'workspaces'],
+          ['PUT', 'workspaces/T0SECOND01'],
+        ] as const) {
+          // A Blob has no type of its own, so the request has the header's or none.
+          const res = await worker.fetch(`http://pip/api/${path}`, {
+            method,
+            headers,
+            body: new Blob([body]),
+          });
+          expect([res.status, type, method]).toEqual([415, type, method]);
+        }
+      }
+      // Nothing was added, changed or even asked of Slack.
+      const stored = await env.DB.prepare(
+        'SELECT team_id, label FROM slack_workspaces ORDER BY team_id',
+      ).all();
+      expect(stored.results).toEqual([{ team_id: 'T0SECOND01', label: 'Second' }]);
+
+      const res = await worker.fetch('http://pip/api/workspaces', {
+        method: 'POST',
+        headers: { 'content-type': 'Application/JSON; charset=utf-8' },
+        body: json,
+      });
+      expect(res.status).toBe(201);
+    } finally {
+      slack.restore();
+    }
+  });
+
+  it('says so, and keeps nothing, when PIP_SECRETS_KEY is unset or not a key', async () => {
+    await env.DB.exec('DELETE FROM slack_workspaces');
+    const secrets = env as { PIP_SECRETS_KEY?: string };
+    const key = secrets.PIP_SECRETS_KEY;
+    const slack = mockSlack();
+    try {
+      for (const [value, state] of [
+        [undefined, 'unset'],
+        ['dG9vIHNob3J0', 'invalid'],
+      ] as const) {
+        if (value === undefined) {
+          delete secrets.PIP_SECRETS_KEY;
+        } else {
+          secrets.PIP_SECRETS_KEY = value;
+        }
+        const listed = await api('workspaces', 'GET');
+        expect(await listed.json()).toMatchObject({ secrets_key: state, workspaces: [] });
+        const res = await api('workspaces', 'POST', SECOND);
+        expect(res.status).toBe(503);
+        expect(await res.text()).toContain('PIP_SECRETS_KEY');
+      }
+      expect(await env.DB.prepare('SELECT team_id FROM slack_workspaces').first()).toBeNull();
+    } finally {
+      secrets.PIP_SECRETS_KEY = key;
+      slack.restore();
+    }
+  });
+
+  it('reads the team of an event, a slash command and an interaction', async () => {
+    const { slackTeamId } = await import('../src/worker/workspaces');
+    expect(slackTeamId(mentionFrom('T0SECOND01', {}))).toBe('T0SECOND01');
+    expect(slackTeamId(commandFrom('T0SECOND01', 'U0X', '/cc', 'x'))).toBe('T0SECOND01');
+    const interaction = { type: 'block_actions', team: { id: 'T0SECOND01' }, user: { id: 'U0X' } };
+    expect(
+      slackTeamId(new URLSearchParams({ payload: JSON.stringify(interaction) }).toString()),
+    ).toBe('T0SECOND01');
+    for (const body of ['', '{', '{"type":"url_verification"}', 'payload=%7B', 'ssl_check=1']) {
+      expect(slackTeamId(body)).toBeUndefined();
+    }
+  });
+
+  it('checks a request with the signing secret of the workspace it is from', async () => {
+    await addSecond();
+    const slack = mockSlack();
+    const error = vi.spyOn(console, 'error').mockImplementation(() => {});
+    try {
+      const text = '<@U0PIP> cc fix the build';
+      const second = mentionFrom('T0SECOND01', { user: SECOND.owner_user_id, text });
+      // Signed as the second workspace's app signs: started there, with its own credentials.
+      expect((await slackRequest(second, SECOND.signing_secret)).status).toBe(200);
+      expect(slack.channels).toHaveLength(1);
+      expect(slack.channels[0]).toMatchObject({
+        url: 'https://second.slack.com/api/client.codeChannels.create',
+        cookie: 'd=xoxd-second-cookie',
+        token: 'xoxc-second-client',
+        team_id: 'T0SECOND01',
+        app_id: 'A0SECOND01',
+      });
+      expect(slack.posts).toEqual([
+        {
+          authorization: 'Bearer xoxb-second-bot',
+          channel: 'C0HERE',
+          thread_ts: '1700000000.000100',
+          text: `:rocket: Started <#C0NEW> (${DEFAULT_CODE_MODEL}).`,
+        },
+      ]);
+
+      // The home secret doesn't open the second workspace, nor the second's the home one or a
+      // team pip has never heard of.
+      const home = mentionFrom('T0PIP', { user: owner, text });
+      expect((await slackRequest(second, 'test-signing-secret')).status).toBe(401);
+      expect((await slackRequest(home, SECOND.signing_secret)).status).toBe(401);
+      expect(
+        (await slackRequest(mentionFrom('T0UNKNOWN1', { user: owner, text }), 'wrong')).status,
+      ).toBe(401);
+      expect(slack.channels).toHaveLength(1);
+      expect(slack.posts).toHaveLength(1);
+
+      // A team with no row is the home workspace's, as it was before there were rows.
+      expect((await slackRequest(home, 'test-signing-secret')).status).toBe(200);
+      expect(slack.channels).toHaveLength(2);
+      expect(slack.channels[1]).toMatchObject({
+        url: 'https://pynhq.slack.com/api/client.codeChannels.create',
+        cookie: 'd=xoxd-test',
+        token: 'xoxc-test',
+        team_id: env.SLACK_TEAM_ID,
+        app_id: env.SLACK_CODE_APP_ID,
+      });
+      expect(slack.posts[1]?.authorization).toBe('Bearer xoxb-test');
+    } finally {
+      error.mockRestore();
+      slack.restore();
+    }
+  });
+
+  it('answers the owner of the workspace a request is from, and nobody from another', async () => {
+    await addSecond();
+    const slack = mockSlack();
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    try {
+      const text = '<@U0PIP> cc fix the build';
+      // The home owner is no one in the second workspace, and its owner no one at home.
+      await slackRequest(mentionFrom('T0SECOND01', { user: owner, text }), SECOND.signing_secret);
+      await slackRequest(
+        mentionFrom('T0PIP', { user: SECOND.owner_user_id, text }),
+        'test-signing-secret',
+      );
+      // Nor is a bot listed in one workspace allowed in the other.
+      const bot = { user: 'U0BOT00002', bot_id: 'B0BOT00002', text };
+      await slackRequest(mentionFrom('T0PIP', bot), 'test-signing-secret');
+      expect(slack.channels).toEqual([]);
+      expect(slack.posts).toEqual([]);
+
+      await slackRequest(mentionFrom('T0SECOND01', bot), SECOND.signing_secret);
+      expect(slack.channels).toHaveLength(1);
+      expect(slack.channels[0]?.team_id).toBe('T0SECOND01');
+
+      // `/pip` is the owner's alone too.
+      const pip = (user: string) =>
+        slackRequest(
+          commandFrom('T0SECOND01', user, '/pip', 'hello'),
+          SECOND.signing_secret,
+          'application/x-www-form-urlencoded',
+        );
+      expect(await (await pip(SECOND.owner_user_id)).text()).toContain('You said: hello');
+      expect(await (await pip(owner)).text()).not.toContain('You said');
+    } finally {
+      warn.mockRestore();
+      slack.restore();
+    }
+  });
+
+  it('reads the repo words in the home workspace only', async () => {
+    await addSecond();
+    const slack = mockSlack();
+    try {
+      const text = '<@U0PIP> cc web fix the header';
+      await slackRequest(
+        mentionFrom('T0SECOND01', { user: SECOND.owner_user_id, text }),
+        SECOND.signing_secret,
+      );
+      await slackRequest(mentionFrom('T0PIP', { user: owner, text }), 'test-signing-secret');
+      expect(slack.channels.map((sent) => sent.blocks?.match(/"text":("[^"]*")/)?.[1])).toEqual([
+        '"web fix the header"',
+        '"In the ponhq/pynhq.com repo: fix the header"',
+      ]);
+
+      // The usage doesn't offer them there either.
+      const { CC_USAGE } = await import('../src/worker/slack');
+      const usage = async (team: string, user: string, secret: string) => {
+        const res = await slackRequest(
+          commandFrom(team, user, '/cc', ''),
+          secret,
+          'application/x-www-form-urlencoded',
+        );
+        return ((await res.json()) as { text: string }).text;
+      };
+      expect(await usage('T0PIP', owner, 'test-signing-secret')).toBe(CC_USAGE);
+      const there = await usage('T0SECOND01', SECOND.owner_user_id, SECOND.signing_secret);
+      expect(CC_USAGE.startsWith(there)).toBe(true);
+      expect(there).not.toContain('says which repo');
+    } finally {
+      slack.restore();
+    }
+  });
+
+  it('says code channels are not set up in a workspace without a session or an app ID', async () => {
+    const slack = mockSlack();
+    try {
+      for (const missing of [{ client_token: '', d_cookie: '' }, { code_app_id: '' }]) {
+        await addSecond(missing);
+        const listed = await (await api('workspaces', 'GET')).json<{
+          workspaces: { code_channels_enabled: boolean }[];
+        }>();
+        expect(listed.workspaces[0]?.code_channels_enabled).toBe(false);
+
+        slack.posts.length = 0;
+        await slackRequest(
+          mentionFrom('T0SECOND01', { user: SECOND.owner_user_id, text: '<@U0PIP> cc fix it' }),
+          SECOND.signing_secret,
+        );
+        expect(slack.channels).toEqual([]);
+        expect(slack.posts).toHaveLength(1);
+        expect(slack.posts[0]?.text).toContain('Code channels are not set up for this workspace');
+
+        for (const command of ['/cc', '/sitrep']) {
+          const res = await slackRequest(
+            commandFrom('T0SECOND01', SECOND.owner_user_id, command, 'fix it'),
+            SECOND.signing_secret,
+            'application/x-www-form-urlencoded',
+          );
+          expect(await res.text()).toContain('not set up for this workspace');
+        }
+
+        const res = await api('code-channel', 'POST', {
+          prompt: 'fix it',
+          workspace: 'T0SECOND01',
+        });
+        expect(res.status).toBe(503);
+        expect(await res.text()).toContain('not set up for workspace T0SECOND01');
+      }
+      expect(slack.channels).toEqual([]);
+    } finally {
+      slack.restore();
+    }
+  });
+
+  it('answers the url_verification of a workspace added on Settings', async () => {
+    await addSecond();
+    const body = JSON.stringify({ type: 'url_verification', challenge: 'abc123' });
+    expect(await (await slackRequest(body, SECOND.signing_secret)).text()).toBe('abc123');
+    expect(await (await slackRequest(body, 'test-signing-secret')).text()).toBe('abc123');
+    expect((await slackRequest(body, 'nobody-signing-secret')).status).toBe(401);
+  });
+
+  it('does not use a workspace whose stored secret was moved or does not decrypt', async () => {
+    const slack = mockSlack();
+    const error = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const request = () =>
+      slackRequest(
+        mentionFrom('T0SECOND01', { user: SECOND.owner_user_id, text: '<@U0PIP> cc fix it' }),
+        SECOND.signing_secret,
+      );
+    try {
+      // Another column's ciphertext, another row's, and one made under another key.
+      const { encryptSecret, importSecretsKey } = await import('../src/lib/secrets');
+      const otherKey = await importSecretsKey(new Uint8Array(32).fill(9).toBase64());
+      const foreign = await encryptSecret(otherKey, 'xoxd-second-cookie', 'T0SECOND01:d_cookie');
+      const third = { ...SECOND, team_id: 'T0THIRD001', bot_token: 'xoxb-third-bot' };
+      for (const [column, sql] of [
+        [
+          'signing_secret',
+          "UPDATE slack_workspaces SET signing_secret = bot_token WHERE team_id = 'T0SECOND01'",
+        ],
+        [
+          'bot_token',
+          "UPDATE slack_workspaces SET bot_token = (SELECT bot_token FROM slack_workspaces WHERE team_id = 'T0THIRD001') WHERE team_id = 'T0SECOND01'",
+        ],
+        ['d_cookie', `UPDATE slack_workspaces SET d_cookie = '${foreign}'`],
+      ] as const) {
+        await addSecond();
+        expect((await api('workspaces', 'POST', third)).status).toBe(201);
+        expect((await request()).status).toBe(200);
+        await env.DB.exec(sql);
+        error.mockClear();
+        slack.channels.length = 0;
+        slack.posts.length = 0;
+        expect((await request()).status).toBe(401);
+        expect(slack.channels).toEqual([]);
+        expect(slack.posts).toEqual([]);
+        // The log says which team and column, and has no value in it.
+        expect(error).toHaveBeenCalledTimes(1);
+        expect(error.mock.calls[0]?.[1]).toEqual({ team: 'T0SECOND01', column });
+        expect(JSON.stringify(error.mock.calls)).not.toMatch(/v1:|xox|signing-secret/);
+        // The code channel API turns it down as well.
+        const res = await api('code-channel', 'POST', {
+          prompt: 'fix it',
+          workspace: 'T0SECOND01',
+        });
+        expect(res.status).toBe(503);
+      }
+    } finally {
+      error.mockRestore();
+      slack.restore();
+    }
+  });
+
+  it('starts a code channel in the workspace the Code page or the MCP tool names', async () => {
+    await addSecond();
+    const slack = mockSlack();
+    try {
+      const res = await api('code-channel', 'POST', { prompt: 'fix it', workspace: 'T0SECOND01' });
+      expect(res.status).toBe(201);
+      // The link is to that workspace, and the preamble, which names a home repo, is left off.
+      expect(await res.json()).toMatchObject({
+        prompt: 'fix it',
+        channel_id: 'C0NEW',
+        url: 'https://second.slack.com/archives/C0NEW',
+      });
+      const viaTool = await callTool('create_code_channel', {
+        prompt: 'fix it',
+        workspace: 'T0SECOND01',
+      });
+      expect(viaTool.isError).toBe(false);
+      expect(JSON.parse(viaTool.text)).toMatchObject({
+        prompt: 'fix it',
+        url: 'https://second.slack.com/archives/C0NEW',
+      });
+      // With no workspace, or the home one's team ID, it is the home workspace, preamble and all.
+      for (const workspace of [undefined, env.SLACK_TEAM_ID]) {
+        const home = await api('code-channel', 'POST', { prompt: 'fix it', workspace });
+        expect(await home.json()).toMatchObject({
+          prompt: 'In pynhq/pyn repo fix it',
+          url: 'https://pynhq.slack.com/archives/C0NEW',
+        });
+      }
+      expect(slack.channels.map((sent) => [sent.url?.split('/')[2], sent.team_id])).toEqual([
+        ['second.slack.com', 'T0SECOND01'],
+        ['second.slack.com', 'T0SECOND01'],
+        ['pynhq.slack.com', env.SLACK_TEAM_ID],
+        ['pynhq.slack.com', env.SLACK_TEAM_ID],
+      ]);
+
+      const unknown = await api('code-channel', 'POST', { prompt: 'x', workspace: 'T0NOSUCH01' });
+      expect(unknown.status).toBe(404);
+      const tool = await callTool('create_code_channel', { prompt: 'x', workspace: 'T0NOSUCH01' });
+      expect(tool.isError).toBe(true);
+      expect(tool.text).toContain('No workspace T0NOSUCH01');
+      expect(slack.channels).toHaveLength(4);
+    } finally {
+      slack.restore();
+    }
+  });
+
+  it('hands out a manifest for the Slack app the Worker answers', async () => {
+    const { SLACK_COMMANDS, slackManifest } = await import('../src/shared/slack-manifest');
+    const manifest = slackManifest('https://pip.example.com');
+    const url = 'https://pip.example.com/slack/events';
+    // The scopes and events the README has for the home app, which is what the Worker handles:
+    // `app_mention`, and a `message` in an `im`.
+    expect(manifest.oauth_config).toEqual({
+      scopes: { bot: ['app_mentions:read', 'chat:write', 'commands', 'im:history'] },
+    });
+    expect(manifest.settings).toEqual({
+      event_subscriptions: { request_url: url, bot_events: ['app_mention', 'message.im'] },
+      interactivity: { is_enabled: true, request_url: url },
+      org_deploy_enabled: false,
+      socket_mode_enabled: false,
+      token_rotation_enabled: false,
+    });
+    expect(manifest.display_information).toEqual({ name: 'pip' });
+    expect(manifest.features.bot_user).toEqual({ display_name: 'pip' });
+    // DMs to pip need the Messages tab, and it not read-only.
+    expect(manifest.features.app_home).toMatchObject({
+      messages_tab_enabled: true,
+      messages_tab_read_only_enabled: false,
+    });
+    // Every URL in it is on the origin given, and there is nothing else to call.
+    const urls = JSON.stringify(manifest).match(/https?:[^"]*/g);
+    expect(urls).toHaveLength(5);
+    expect(new Set(urls)).toEqual(new Set([url]));
+    for (const key of ['redirect_urls', 'user', 'app_directory']) {
+      expect(JSON.stringify(manifest)).not.toContain(`"${key}"`);
+    }
+
+    // The commands are SLACK_COMMANDS, each with a description, and the Worker answers each one:
+    // a command it has no handler for is a 404.
+    const commands = Object.keys(SLACK_COMMANDS);
+    expect(commands).toEqual(['/pip', '/cc', '/sitrep']);
+    expect(manifest.features.slash_commands.map((item) => item.command)).toEqual(commands);
+    for (const item of manifest.features.slash_commands) {
+      expect(item.url).toBe(url);
+      expect(item.description).not.toBe('');
+    }
+    // Slack says yes to whatever a command goes on to ask of it, a reply to its response_url too.
+    const slack = vi.spyOn(globalThis, 'fetch').mockImplementation(async (input) => {
+      const { hostname } = new URL(input instanceof Request ? input.url : String(input));
+      return hostname === 'hooks.slack.com'
+        ? new Response('ok')
+        : Response.json({ ok: true, team_id: 'T0PIP', user_id: 'U0PIP', bot_id: 'B0PIP' });
+    });
+    const log = vi.spyOn(console, 'log').mockImplementation(() => {});
+    try {
+      const send = (command: string) =>
+        slackRequest(
+          commandFrom('T0PIP', owner, command, ''),
+          'test-signing-secret',
+          'application/x-www-form-urlencoded',
+        );
+      for (const command of commands) {
+        const res = await send(command);
+        expect([command, res.status]).toEqual([command, 200]);
+        expect(((await res.json()) as { text: string }).text).not.toBe('');
+      }
+      expect((await send('/nope')).status).toBe(404);
+    } finally {
+      log.mockRestore();
+      slack.mockRestore();
+    }
+  });
+
+  it("has the home workspace only when the table isn't there yet", async () => {
+    await env.DB.exec('DELETE FROM slack_workspaces');
+    await env.DB.exec('ALTER TABLE slack_workspaces RENAME TO slack_workspaces_later');
+    const slack = mockSlack();
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    try {
+      const listed = await api('workspaces', 'GET');
+      expect(await listed.json()).toMatchObject({ secrets_key: 'ok', workspaces: [] });
+      const res = await api('workspaces', 'POST', SECOND);
+      expect(res.status).toBe(503);
+      expect(await res.text()).toContain('pnpm run migrate');
+
+      const text = '<@U0PIP> cc fix the build';
+      const home = mentionFrom('T0PIP', { user: owner, text });
+      expect((await slackRequest(home, 'test-signing-secret')).status).toBe(200);
+      expect(slack.channels).toHaveLength(1);
+      expect(slack.channels[0]?.url).toBe('https://pynhq.slack.com/api/client.codeChannels.create');
+      const body = JSON.stringify({ type: 'url_verification', challenge: 'abc123' });
+      expect(await (await slackRequest(body, 'test-signing-secret')).text()).toBe('abc123');
+      expect((await slackRequest(body, 'nobody-signing-secret')).status).toBe(401);
+    } finally {
+      warn.mockRestore();
+      slack.restore();
+      await env.DB.exec('ALTER TABLE slack_workspaces_later RENAME TO slack_workspaces');
+    }
+  });
+
+  it("never reads D1 for the home workspace's own team", async () => {
+    const { slackEnvForRequest } = await import('../src/worker/workspaces');
+    const prepare = vi.spyOn(env.DB, 'prepare');
+    try {
+      const body = mentionFrom(env.SLACK_TEAM_ID, { user: owner, text: 'hello' });
+      expect(await slackEnvForRequest(new Headers(), body)).toBeUndefined();
+      expect(prepare).not.toHaveBeenCalled();
+    } finally {
+      prepare.mockRestore();
+    }
+  });
+});
