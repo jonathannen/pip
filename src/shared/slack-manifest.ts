@@ -1,6 +1,6 @@
 // The Slack app pip needs in a workspace, as a manifest to paste into Slack's "create an app from
-// a manifest". Settings shows it for the workspace being added (see README, Adding a second
-// workspace); the home workspace's app was made by hand to the same shape.
+// a manifest". The Set up a workspace page shows it for the workspace being added (see README,
+// Adding a second workspace); the home workspace's app was made by hand to the same shape.
 
 /** The slash commands the Worker answers (src/worker/slack.ts), with what Slack shows for each. */
 export const SLACK_COMMANDS = {

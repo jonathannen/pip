@@ -1,0 +1,131 @@
+.lede {
+  color: var(--text-muted);
+  margin-bottom: 1.5rem;
+  max-width: 40rem;
+
+  & a {
+    color: var(--accent);
+  }
+}
+
+/* The steps: a card each, numbered by the list. */
+.steps {
+  counter-reset: step;
+  display: grid;
+  gap: 1rem;
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.step {
+  align-content: start;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  counter-increment: step;
+  display: grid;
+  gap: 0.75rem;
+  justify-items: start;
+  /* A grid item's min-width is its content's; the manifest and the command would widen the page. */
+  min-width: 0;
+  padding: 1rem 1.25rem 1.25rem;
+
+  & > * {
+    max-width: 44rem;
+    min-width: 0;
+  }
+
+  & h2 {
+    align-items: baseline;
+    display: flex;
+    gap: 0.625rem;
+
+    &::before {
+      color: var(--text-subtle);
+      content: counter(step);
+      font-variant-numeric: tabular-nums;
+    }
+  }
+
+  & > p {
+    color: var(--text-muted);
+  }
+
+  & code {
+    color: var(--text);
+    font-family: var(--font-mono);
+    font-size: 0.8125rem;
+    overflow-wrap: anywhere;
+  }
+
+  & a {
+    color: var(--accent);
+  }
+
+  & b {
+    color: var(--text);
+    font-weight: 500;
+  }
+
+  & textarea,
+  & form {
+    justify-self: stretch;
+    width: 100%;
+  }
+
+  & textarea {
+    background: var(--bg);
+    border: 1px solid var(--border-strong);
+    border-radius: 0.375rem;
+    box-sizing: border-box;
+    color: var(--text);
+    font-family: var(--font-mono);
+    font-size: 0.8125rem;
+    padding: 0.5rem 0.75rem;
+    resize: vertical;
+  }
+}
+
+.code {
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 0.375rem;
+  box-sizing: border-box;
+  font-family: var(--font-mono);
+  font-size: 0.8125rem;
+  line-height: 1.6;
+  margin: 0;
+  overflow-x: auto;
+  padding: 0.5rem 0.75rem;
+  width: 100%;
+}
+
+/* Where a step stands: a dot, green when it is done and red when something is in the way. */
+.status {
+  align-items: baseline;
+  display: flex;
+  gap: 0.5rem;
+}
+
+.dot {
+  background: var(--success);
+  border-radius: 50%;
+  flex: none;
+  height: 0.5rem;
+  width: 0.5rem;
+
+  &[data-error] {
+    background: var(--danger);
+  }
+}
+
+.quiet {
+  background: none;
+  border-color: var(--border-strong);
+  color: var(--text);
+}
+
+.error {
+  color: var(--danger);
+}

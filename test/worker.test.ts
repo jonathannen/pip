@@ -1841,6 +1841,53 @@ describe('workspaces', () => {
     }
   });
 
+  it('asks on the setup page for what the API takes, and says which of it is needed', async () => {
+    const { WORKSPACE_FIELDS, WORKSPACE_FIELD_GROUPS } = await import(
+      '../src/shared/workspace-fields'
+    );
+    const names = WORKSPACE_FIELDS.map((field) => field.name);
+    // Every field the form sends is one the API reads, each once and under a group's title, with
+    // where its value comes from.
+    expect([...names].sort()).toEqual(Object.keys(SECOND).sort());
+    for (const group of WORKSPACE_FIELD_GROUPS) {
+      expect(group.title).not.toBe('');
+      expect(group.about).not.toBe('');
+    }
+    for (const field of WORKSPACE_FIELDS) {
+      expect([field.name, field.label, field.placeholder, field.hint]).not.toContain('');
+    }
+    // The write-only fields are the four encrypted columns, so no other field is typed out of
+    // sight and none of these is ever filled in from the server.
+    expect(WORKSPACE_FIELDS.filter((field) => field.secret).map((field) => field.name)).toEqual([
+      ...SECRETS,
+    ]);
+
+    // What the form marks as needed is what the API needs: a workspace is added with those fields
+    // alone, and not without any one of them.
+    const required = WORKSPACE_FIELDS.filter((field) => field.required).map((field) => field.name);
+    const needed = Object.fromEntries(
+      required.map((name) => [name, SECOND[name as keyof typeof SECOND]]),
+    );
+    await env.DB.exec('DELETE FROM slack_workspaces');
+    const slack = mockSlack();
+    try {
+      for (const name of required) {
+        const res = await api('workspaces', 'POST', { ...needed, [name]: '' });
+        expect([name, res.status]).toEqual([name, 400]);
+      }
+      const res = await api('workspaces', 'POST', needed);
+      expect(res.status).toBe(201);
+      expect(await res.json()).toMatchObject({
+        team_id: SECOND.team_id,
+        cc_bot_ids: '',
+        code_app_id: null,
+        code_channels_enabled: false,
+      });
+    } finally {
+      slack.restore();
+    }
+  });
+
   it("has the home workspace only when the table isn't there yet", async () => {
     await env.DB.exec('DELETE FROM slack_workspaces');
     await env.DB.exec('ALTER TABLE slack_workspaces RENAME TO slack_workspaces_later');
