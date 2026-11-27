@@ -18,6 +18,12 @@ const SCHEDULES: readonly Schedule[] = [
     what: 'Adds new stories and any new Mamurius notebooks to mamurius.com/news as a pull request in jonathannen/mamurius. No pull request on days with nothing new.',
     where: 'MAMURIUS NEWS',
   },
+  {
+    when: 'Daily, 6:34am Sydney',
+    name: 'JNN daily traffic assessment.',
+    what: 'Posts one short assessment of jonathannen.com traffic from GA4 and Search Console: the last three months against the three before, the last week day by day, and what changed since the previous assessment.',
+    where: 'JNN TRAFFIC',
+  },
 ];
 
 /** The scheduled tasks that run for Jon, and where each one reports. */
