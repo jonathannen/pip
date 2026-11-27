@@ -19,6 +19,12 @@ const SCHEDULES: readonly Schedule[] = [
     where: 'MAMURIUS NEWS',
   },
   {
+    when: 'Daily, 4:43am New York',
+    name: 'Blog maintenance.',
+    what: 'Fixes typos in posts and shorts, checks for broken links and compresses new images on jonathannen.com, committed straight to main in jonathannen/jonathannen.com (the steps are its daily-maintenance command). Reports what it fixed and what needs you; one line on days with nothing to do.',
+    where: 'JNN BLOG',
+  },
+  {
     when: 'Daily, 7:36am, 12:36pm and 5:36pm Los Angeles',
     name: 'Social interactions check.',
     what: 'Drafts replies and comments for Jon on Hacker News, Lobsters and LinkedIn, which he posts himself. Announces each new jonathannen.com post or short on LinkedIn, X and Bluesky, gives the daily submission picks on the first run of the day, and commits post stats to memory/social.md in jonathannen/jonathannen.com. Nothing outside 7am to 7pm where Jon is.',
