@@ -28,6 +28,10 @@
     color: var(--text);
     font-weight: 600;
   }
+
+  & a {
+    color: var(--accent);
+  }
 }
 
 .short {
@@ -63,6 +67,11 @@
         content: attr(data-label);
         font-size: 0.75rem;
         line-height: 1.3125rem;
+      }
+
+      /* Only the link's text is the link, not the rest of its line. */
+      & a {
+        justify-self: start;
       }
     }
   }
