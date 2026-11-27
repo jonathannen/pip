@@ -35,6 +35,9 @@ function Root() {
           <Link className={styles.link} to="/mcp">
             MCP
           </Link>
+          <Link className={styles.link} to="/schedules">
+            Schedules
+          </Link>
           <UserMenu email={me.email} />
         </nav>
       </header>

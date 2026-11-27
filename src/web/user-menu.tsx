@@ -27,7 +27,7 @@ export function UserMenu({ email }: { readonly email: string }) {
         ref={trigger}
         type="button"
       >
-        {email}
+        <span className={styles.email}>{email}</span>
         <svg aria-hidden="true" viewBox="0 0 16 16">
           <path d="m4.5 6.5 3.5 3.5 3.5-3.5" />
         </svg>

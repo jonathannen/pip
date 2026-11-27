@@ -1,5 +1,7 @@
 .menu {
   margin-left: auto;
+  /* Lets the email shorten rather than push the nav past a phone's width. */
+  min-width: 0;
   position: relative;
 }
 
@@ -9,6 +11,7 @@
   color: var(--text-subtle);
   font-weight: 400;
   gap: 0.25rem;
+  max-width: 100%;
   padding: 0 0.5rem 0 0.625rem;
   transition:
     background 120ms,
@@ -26,6 +29,7 @@
 
   & svg {
     fill: none;
+    flex: none;
     height: 0.875rem;
     stroke: currentcolor;
     stroke-linecap: round;
@@ -38,6 +42,13 @@
   &[aria-expanded="true"] svg {
     transform: rotate(180deg);
   }
+}
+
+.email {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .panel {

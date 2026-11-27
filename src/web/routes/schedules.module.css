@@ -1,0 +1,73 @@
+.table {
+  border-collapse: collapse;
+  width: 100%;
+
+  & th,
+  & td {
+    border-bottom: 1px solid var(--border);
+    padding: 0.625rem 1.5rem 0.625rem 0;
+    text-align: left;
+    vertical-align: top;
+
+    &:last-child {
+      padding-right: 0;
+    }
+  }
+
+  & th {
+    color: var(--text-subtle);
+    font-size: 0.75rem;
+    font-weight: 500;
+  }
+
+  & td {
+    color: var(--text-muted);
+  }
+
+  & b {
+    color: var(--text);
+    font-weight: 600;
+  }
+}
+
+.short {
+  white-space: nowrap;
+}
+
+/* A phone: three columns don't fit, so each schedule is a block and each cell carries its column's name. */
+@media (max-width: 40rem) {
+  .table {
+    & thead {
+      display: none;
+    }
+
+    & tr {
+      border-bottom: 1px solid var(--border);
+      display: block;
+      padding: 0.625rem 0;
+
+      &:first-child {
+        border-top: 1px solid var(--border);
+      }
+    }
+
+    & td {
+      border-bottom: 0;
+      display: grid;
+      gap: 0 0.75rem;
+      grid-template-columns: 3rem 1fr;
+      padding: 0.125rem 0;
+
+      &::before {
+        color: var(--text-subtle);
+        content: attr(data-label);
+        font-size: 0.75rem;
+        line-height: 1.3125rem;
+      }
+    }
+  }
+
+  .short {
+    white-space: normal;
+  }
+}
