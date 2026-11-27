@@ -105,10 +105,10 @@ Settings' Gmail card shows whether the two secrets are set and when Gmail was co
 ### Cron
 
 `triggers.crons` runs `scheduled` in `src/worker/index.ts` once a day (`HEARTBEAT_CRON`). It only logs for now.
-# pip
 
 ## Skills
 
 `.claude/skills/` holds Claude Code skills, which an agent working in this repo picks up by itself.
 
 - `write-like-jon` (`.claude/skills/write-like-jon/SKILL.md`): how to draft a Hacker News, Lobsters or LinkedIn comment in Jon's voice, each rule with his own comments quoted, and what the reply data says about which comments land. The tables behind it are in `reference.md` next to it.
+# pip
