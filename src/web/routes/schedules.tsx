@@ -24,6 +24,12 @@ const SCHEDULES: readonly Schedule[] = [
     what: 'Fixes typos in posts and shorts, checks for broken links and compresses new images on jonathannen.com, committed straight to main in jonathannen/jonathannen.com (the steps are its daily-maintenance command). Reports what it fixed and what needs you; one line on days with nothing to do.',
     where: 'JNN BLOG',
   },
+  {
+    when: 'Daily, 6:34am Sydney',
+    name: 'JNN daily traffic assessment.',
+    what: 'Posts one short assessment of jonathannen.com traffic from GA4 and Search Console: the last three months against the three before, the last week day by day, and what changed since the previous assessment.',
+    where: 'JNN TRAFFIC',
+  },
 ];
 
 /** The scheduled tasks that run for Jon, and where each one reports. */
