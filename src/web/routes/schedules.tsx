@@ -9,6 +9,8 @@ interface Schedule {
   readonly what: string;
   /** The Slack channel the run reports in. */
   readonly where: string;
+  /** That channel in Slack. */
+  readonly whereUrl?: string;
 }
 
 const SCHEDULES: readonly Schedule[] = [
@@ -17,6 +19,7 @@ const SCHEDULES: readonly Schedule[] = [
     name: 'Mamurius news update.',
     what: 'Adds new stories and any new Mamurius notebooks to mamurius.com/news as a pull request in jonathannen/mamurius. No pull request on days with nothing new.',
     where: 'MAMURIUS NEWS',
+    whereUrl: 'https://jondev.slack.com/archives/C0CM7UZR5QS',
   },
   {
     when: 'Daily, 4:43am New York',
@@ -57,7 +60,13 @@ function Schedules() {
                 </span>
               </td>
               <td className={styles.short} data-label="Where">
-                {schedule.where}
+                {schedule.whereUrl ? (
+                  <a href={schedule.whereUrl} rel="noreferrer" target="_blank">
+                    {schedule.where}
+                  </a>
+                ) : (
+                  schedule.where
+                )}
               </td>
             </tr>
           ))}
