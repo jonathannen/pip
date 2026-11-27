@@ -96,7 +96,7 @@ export const WORKSPACE_FIELD_GROUPS: readonly WorkspaceFieldGroup[] = [
   {
     title: 'Code channels and /sitrep',
     about:
-      "Optional. Leave all three blank to do without them: pip then says they aren't set up there. The session is a browser's, so with it pip starts code channels and posts /sitrep's asks as you. Its token and cookie are stored encrypted and never shown.",
+      "Optional. Leave all three blank to do without them: pip then says they aren't set up there. The session is a browser's, so with it pip starts code channels and posts /sitrep's asks as you. Its token and cookie are stored encrypted and never shown. They stop working when that browser signs out of the workspace, and are then entered again on Settings.",
     fields: [
       {
         name: 'code_app_id',
@@ -110,7 +110,7 @@ export const WORKSPACE_FIELD_GROUPS: readonly WorkspaceFieldGroup[] = [
         name: 'client_token',
         label: 'Client token',
         placeholder: 'xoxc-…',
-        hint: "A browser session's xoxc- token, copied from app.slack.com signed in to that workspace. It goes with the d cookie: give both or neither.",
+        hint: "A browser session's xoxc- token, copied from app.slack.com signed in to that workspace. Each workspace has its own, so take this one's. It goes with the d cookie: give both or neither.",
         required: false,
         secret: true,
       },
@@ -118,7 +118,7 @@ export const WORKSPACE_FIELD_GROUPS: readonly WorkspaceFieldGroup[] = [
         name: 'd_cookie',
         label: 'd cookie',
         placeholder: 'xoxd-…',
-        hint: "The same browser session's d cookie, copied from app.slack.com.",
+        hint: "The same browser session's d cookie, copied from app.slack.com: its value, URL-encoded as the browser keeps it (xoxd-…%2B…) or decoded (xoxd-…+…), either works.",
         required: false,
         secret: true,
       },
