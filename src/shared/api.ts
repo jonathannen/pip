@@ -13,6 +13,27 @@ export interface Me {
   readonly version: string;
 }
 
+/**
+ * The body of a 401 from behind Access (`/api`, `/mcp`, `/auth/google`): why the Worker turned the
+ * request down. `code` is `missing_header`, `no_identity` (a valid token with no email or service
+ * token name) or the error code of jose, which verifies the token.
+ */
+export interface Unauthorized {
+  readonly error: 'Unauthorized';
+  readonly code: string;
+  /** When a claim failed: which one (`iss`, `aud`, `exp`) and how. */
+  readonly claim?: string;
+  readonly reason?: string;
+  /**
+   * What the token itself says, read without verifying it, beside the issuer it has to have
+   * (ACCESS_TEAM_DOMAIN). `iss` is the team domain and `aud` the Access app's AUD tag; neither is a
+   * secret, and nothing else of the token is ever sent.
+   */
+  readonly token_iss?: string;
+  readonly token_aud?: string | readonly string[];
+  readonly expected_iss?: string;
+}
+
 /** A note, from `GET /api/notes` and the `notes_list` MCP tool. */
 export interface Note {
   readonly id: number;
