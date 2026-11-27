@@ -33,6 +33,13 @@ const SCHEDULES: readonly Schedule[] = [
     what: 'Posts one short assessment of jonathannen.com traffic from GA4 and Search Console: the last three months against the three before, the last week day by day, and what changed since the previous assessment.',
     where: 'JNN TRAFFIC',
   },
+  {
+    when: 'Daily, 7:36am, 12:36pm and 5:36pm Los Angeles',
+    name: 'Social interactions check.',
+    what: 'Checks Hacker News, Lobsters, LinkedIn and X for replies to Jon and for posts worth engaging with, and drafts replies and comments, which he posts himself. Reports as one numbered list, with the drafts to copy in its thread. Announces each new jonathannen.com post or short on LinkedIn, X and Bluesky, gives the daily submission picks on the first run of the day, and commits post stats to memory/social.md in jonathannen/jonathannen.com. Nothing outside 7am to 7pm where Jon is.',
+    where: 'JNN SOCIAL',
+    whereUrl: 'https://jondev.slack.com/archives/C0CKEA9KW90',
+  },
 ];
 
 /** The scheduled tasks that run for Jon, and where each one reports. */
