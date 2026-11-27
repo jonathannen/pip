@@ -38,6 +38,11 @@
   white-space: nowrap;
 }
 
+/* One clock's times, on a line of their own. */
+.zone {
+  display: block;
+}
+
 /* A phone: three columns don't fit, so each schedule is a block and each cell carries its column's name. */
 @media (max-width: 40rem) {
   .table {
