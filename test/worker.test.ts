@@ -172,6 +172,50 @@ describe('access', () => {
     expect(res.status).toBe(401);
   });
 
+  it('logs why a token was rejected and nothing of the token', async () => {
+    const { exportJWK, generateKeyPair, SignJWT } = await import('jose');
+    const { verifyAccess } = await import('../src/worker/access');
+    const { privateKey, publicKey } = await generateKeyPair('RS256');
+    const jwk = { ...(await exportJWK(publicKey)), alg: 'RS256', kid: 'test', use: 'sig' };
+    // Signed by the key the certs URL serves and for the right audience, from another team domain.
+    const wrongIssuer = await new SignJWT({ email: 'jon@example.com' })
+      .setProtectedHeader({ alg: 'RS256', kid: 'test' })
+      .setIssuer('https://old-team.cloudflareaccess.com')
+      .setAudience(env.ACCESS_AUD)
+      .setExpirationTime('5m')
+      .sign(privateKey);
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => {
+      const { url } = new Request(input, init);
+      if (url !== `${env.ACCESS_TEAM_DOMAIN}/cdn-cgi/access/certs`) {
+        throw new Error(`unexpected fetch: ${url}`);
+      }
+      return Response.json({ keys: [jwk] });
+    });
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    try {
+      for (const token of ['not-a-token', wrongIssuer]) {
+        const request = new Request('http://pip/api/me', {
+          headers: { 'cf-access-jwt-assertion': token },
+        });
+        expect(await verifyAccess(request)).toBeUndefined();
+      }
+      expect(warn.mock.calls).toEqual([
+        ['pip: Access token rejected', { code: 'ERR_JWS_INVALID' }],
+        [
+          'pip: Access token rejected',
+          { code: 'ERR_JWT_CLAIM_VALIDATION_FAILED', claim: 'iss', reason: 'check_failed' },
+        ],
+      ]);
+      const logged = JSON.stringify(warn.mock.calls);
+      for (const secret of ['not-a-token', wrongIssuer, ...wrongIssuer.split('.'), 'jon@example']) {
+        expect(logged).not.toContain(secret);
+      }
+    } finally {
+      warn.mockRestore();
+      fetchSpy.mockRestore();
+    }
+  });
+
   it('uses the dev identity when Access is absent in dev', async () => {
     const res = await worker.fetch('http://pip/api/me');
     expect(await res.json()).toEqual({
