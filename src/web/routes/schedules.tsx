@@ -25,6 +25,12 @@ const SCHEDULES: readonly Schedule[] = [
     where: 'JNN BLOG',
   },
   {
+    when: 'Daily, 6:34am Sydney',
+    name: 'JNN daily traffic assessment.',
+    what: 'Posts one short assessment of jonathannen.com traffic from GA4 and Search Console: the last three months against the three before, the last week day by day, and what changed since the previous assessment.',
+    where: 'JNN TRAFFIC',
+  },
+  {
     when: 'Daily, 7:36am, 12:36pm and 5:36pm Los Angeles',
     name: 'Social interactions check.',
     what: 'Drafts replies and comments for Jon on Hacker News, Lobsters and LinkedIn, which he posts himself. Announces each new jonathannen.com post or short on LinkedIn, X and Bluesky, gives the daily submission picks on the first run of the day, and commits post stats to memory/social.md in jonathannen/jonathannen.com. Nothing outside 7am to 7pm where Jon is.',
