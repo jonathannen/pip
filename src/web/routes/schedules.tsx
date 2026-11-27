@@ -18,6 +18,12 @@ const SCHEDULES: readonly Schedule[] = [
     what: 'Adds new stories and any new Mamurius notebooks to mamurius.com/news as a pull request in jonathannen/mamurius. No pull request on days with nothing new.',
     where: 'MAMURIUS NEWS',
   },
+  {
+    when: 'Daily, 7:36am, 12:36pm and 5:36pm Los Angeles',
+    name: 'Social interactions check.',
+    what: 'Drafts replies and comments for Jon on Hacker News, Lobsters and LinkedIn, which he posts himself. Announces each new jonathannen.com post or short on LinkedIn, X and Bluesky, gives the daily submission picks on the first run of the day, and commits post stats to memory/social.md in jonathannen/jonathannen.com. Nothing outside 7am to 7pm where Jon is.',
+    where: 'JNN SOCIAL',
+  },
 ];
 
 /** The scheduled tasks that run for Jon, and where each one reports. */
