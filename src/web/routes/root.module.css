@@ -65,6 +65,38 @@
   }
 }
 
+/* The page when /api/me fails. There is no header above it, so it clears the status bar itself. */
+.failure {
+  padding-top: env(safe-area-inset-top);
+
+  & p {
+    color: var(--text-muted);
+    margin-bottom: 1.5rem;
+  }
+}
+
+.actions {
+  align-items: center;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+
+/* A link the size of the button beside it. */
+.action {
+  border: 1px solid var(--border-strong);
+  border-radius: 0.375rem;
+  font-size: 0.8125rem;
+  font-weight: 500;
+  line-height: 2rem;
+  padding: 0 0.875rem;
+  transition: background 120ms;
+
+  &:hover {
+    background: var(--surface-hover);
+  }
+}
+
 /* A phone: the brand, the pages and the user menu share the width, so they close up rather than overflow. */
 @media (max-width: 40rem) {
   .nav {
