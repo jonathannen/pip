@@ -19,6 +19,12 @@ const SCHEDULES: readonly Schedule[] = [
     where: 'MAMURIUS NEWS',
   },
   {
+    when: 'Daily, 4:43am New York',
+    name: 'Blog maintenance.',
+    what: 'Fixes typos in posts and shorts, checks for broken links and compresses new images on jonathannen.com, committed straight to main in jonathannen/jonathannen.com (the steps are its daily-maintenance command). Reports what it fixed and what needs you; one line on days with nothing to do.',
+    where: 'JNN BLOG',
+  },
+  {
     when: 'Daily, 6:34am Sydney',
     name: 'JNN daily traffic assessment.',
     what: 'Posts one short assessment of jonathannen.com traffic from GA4 and Search Console: the last three months against the three before, the last week day by day, and what changed since the previous assessment.',
