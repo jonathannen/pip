@@ -165,49 +165,52 @@ const connectGmail = () =>
   ).run();
 
 describe('access', () => {
-  it('rejects an invalid Access JWT', async () => {
-    const res = await worker.fetch('http://pip/api/me', {
-      headers: { 'cf-access-jwt-assertion': 'bad' },
-    });
-    expect(res.status).toBe(401);
-  });
-
-  it('logs why a token was rejected and nothing of the token', async () => {
+  it('rejects an invalid Access JWT, saying why and nothing of the token', async () => {
     const { exportJWK, generateKeyPair, SignJWT } = await import('jose');
-    const { verifyAccess } = await import('../src/worker/access');
     const { privateKey, publicKey } = await generateKeyPair('RS256');
     const jwk = { ...(await exportJWK(publicKey)), alg: 'RS256', kid: 'test', use: 'sig' };
     // Signed by the key the certs URL serves and for the right audience, from another team domain.
-    const wrongIssuer = await new SignJWT({ email: 'jon@example.com' })
+    const wrongIssuer = await new SignJWT({ email: 'jon@example.com', country: 'NZ' })
       .setProtectedHeader({ alg: 'RS256', kid: 'test' })
       .setIssuer('https://old-team.cloudflareaccess.com')
-      .setAudience(env.ACCESS_AUD)
+      .setAudience([env.ACCESS_AUD])
+      .setSubject('user-id')
       .setExpirationTime('5m')
       .sign(privateKey);
+    const realFetch = globalThis.fetch;
     const fetchSpy = vi.spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => {
       const { url } = new Request(input, init);
-      if (url !== `${env.ACCESS_TEAM_DOMAIN}/cdn-cgi/access/certs`) {
-        throw new Error(`unexpected fetch: ${url}`);
-      }
-      return Response.json({ keys: [jwk] });
+      return url === `${env.ACCESS_TEAM_DOMAIN}/cdn-cgi/access/certs`
+        ? Response.json({ keys: [jwk] })
+        : realFetch(input, init);
     });
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
     try {
-      for (const token of ['not-a-token', wrongIssuer]) {
-        const request = new Request('http://pip/api/me', {
+      const reject = async (token: string) => {
+        const res = await worker.fetch('http://pip/api/me', {
           headers: { 'cf-access-jwt-assertion': token },
         });
-        expect(await verifyAccess(request)).toBeUndefined();
-      }
+        expect(res.status).toBe(401);
+        return res.json();
+      };
+      const garbage = { code: 'ERR_JWS_INVALID', expected_iss: env.ACCESS_TEAM_DOMAIN };
+      const claim = {
+        code: 'ERR_JWT_CLAIM_VALIDATION_FAILED',
+        claim: 'iss',
+        reason: 'check_failed',
+        token_iss: 'https://old-team.cloudflareaccess.com',
+        token_aud: [env.ACCESS_AUD],
+        expected_iss: env.ACCESS_TEAM_DOMAIN,
+      };
+      // Exactly these: the token's issuer and audience, and no other claim of it.
+      expect(await reject('not-a-token')).toEqual({ error: 'Unauthorized', ...garbage });
+      expect(await reject(wrongIssuer)).toEqual({ error: 'Unauthorized', ...claim });
       expect(warn.mock.calls).toEqual([
-        ['pip: Access token rejected', { code: 'ERR_JWS_INVALID' }],
-        [
-          'pip: Access token rejected',
-          { code: 'ERR_JWT_CLAIM_VALIDATION_FAILED', claim: 'iss', reason: 'check_failed' },
-        ],
+        ['pip: Access token rejected', garbage],
+        ['pip: Access token rejected', claim],
       ]);
       const logged = JSON.stringify(warn.mock.calls);
-      for (const secret of ['not-a-token', wrongIssuer, ...wrongIssuer.split('.'), 'jon@example']) {
+      for (const secret of ['not-a-token', ...wrongIssuer.split('.'), 'jon@example', 'user-id']) {
         expect(logged).not.toContain(secret);
       }
     } finally {

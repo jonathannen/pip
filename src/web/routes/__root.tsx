@@ -1,19 +1,21 @@
 import type { ErrorComponentProps } from '@tanstack/react-router';
 import { createRootRoute, Link, Outlet } from '@tanstack/react-router';
-import type { Me } from '../../shared/api';
+import type { Me, Unauthorized } from '../../shared/api';
 import logo from '../logo.png';
-import type { GuardStore, MeFailure } from '../reauth';
-import { LOGOUT_PATH, recover, recovered } from '../reauth';
+import type { GuardStore } from '../reauth';
+import { LOGOUT_PATH, reasonRows, recovered, reloadOnce, unauthorized } from '../reauth';
 import { UserMenu } from '../user-menu';
 import styles from './root.module.css';
 
-/** `/api/me` failed in a way signing in again might fix, and doing that by itself is used up. */
+/** `/api/me` failed in a way signing in again might fix. `why` is the Worker's reason for a 401. */
 class SignInError extends Error {
   readonly title: string;
+  readonly why: Unauthorized | undefined;
 
-  constructor(title: string, message: string) {
+  constructor(title: string, message: string, why?: Unauthorized) {
     super(message);
     this.title = title;
+    this.why = why;
   }
 }
 
@@ -26,27 +28,6 @@ function guardStore(): GuardStore | undefined {
   }
 }
 
-/**
- * Signs in again after a failed `/api/me`, once (src/web/reauth.ts); after that, or offline, where
- * a reload would only lose the page, it throws for the error screen. A preload only throws.
- */
-async function signInAgain(failure: MeFailure, preload: boolean): Promise<never> {
-  const online = failure === 'unauthorized' || navigator.onLine;
-  const recovery = preload || !online ? 'none' : recover(failure, guardStore());
-  if (recovery === 'none') {
-    throw failure === 'unauthorized'
-      ? new SignInError('Sign-in failed', "pip didn't accept your sign-in (/api/me 401).")
-      : new SignInError("Can't reach pip", 'You may be offline, or your sign-in may have run out.');
-  }
-  if (recovery === 'logout') {
-    location.assign(LOGOUT_PATH);
-  } else {
-    location.reload();
-  }
-  // The page is on its way out; nothing to render in the meantime.
-  return new Promise(() => {});
-}
-
 export const Route = createRootRoute({
   loader: async ({ preload }): Promise<Me> => {
     let res: Response;
@@ -57,10 +38,28 @@ export const Route = createRootRoute({
       if (!(error instanceof TypeError)) {
         throw error;
       }
-      return signInAgain('unreachable', preload);
+      // A page load can follow that redirect. Once (src/web/reauth.ts), and not offline, where a
+      // reload would only lose the page, nor for a preload.
+      if (!preload && navigator.onLine && reloadOnce(guardStore())) {
+        location.reload();
+        // The page is on its way out; nothing to render in the meantime.
+        return new Promise(() => {});
+      }
+      throw new SignInError(
+        "Can't reach pip",
+        'You may be offline, or your sign-in may have run out.',
+      );
     }
     if (res.status === 401) {
-      return signInAgain('unauthorized', preload);
+      // Always the error screen, with the Worker's reason on it; signing out is left to the link.
+      const why = unauthorized(await res.json().catch(() => null));
+      throw new SignInError(
+        'Sign-in failed',
+        why
+          ? "pip didn't accept your sign-in."
+          : "/api/me answered 401 without a reason, so it may not have come from pip's Worker.",
+        why,
+      );
     }
     if (!res.ok) {
       throw new Error(`/api/me ${res.status}`);
@@ -75,7 +74,8 @@ export const Route = createRootRoute({
 
 /**
  * Stands in for the whole page when `/api/me` fails. Installed, pip has no address bar or reload
- * button, so the ways out are here: a real navigation to Access's logout, and a reload.
+ * button, so the ways out are here: a real navigation to Access's logout, and a reload. A 401 shows
+ * why the Worker said no, to read off a screenshot.
  */
 function Failure({ error }: ErrorComponentProps) {
   const signIn = error instanceof SignInError;
@@ -84,6 +84,16 @@ function Failure({ error }: ErrorComponentProps) {
       <div className={styles.failure}>
         <h1>{signIn ? error.title : 'Something went wrong'}</h1>
         <p>{error instanceof Error ? error.message : String(error)}</p>
+        {signIn && error.why && (
+          <dl className={styles.details}>
+            {reasonRows(error.why).map(([label, value]) => (
+              <div key={label}>
+                <dt>{label}</dt>
+                <dd>{value}</dd>
+              </div>
+            ))}
+          </dl>
+        )}
         <div className={styles.actions}>
           {signIn && (
             <a className={styles.action} href={LOGOUT_PATH}>
