@@ -36,7 +36,7 @@ const SCHEDULES: readonly Schedule[] = [
   {
     when: 'Daily, 7:36am, 12:36pm and 5:36pm Los Angeles',
     name: 'Social interactions check.',
-    what: 'Drafts replies and comments for Jon on Hacker News, Lobsters and LinkedIn, which he posts himself. Announces each new jonathannen.com post or short on LinkedIn, X and Bluesky, gives the daily submission picks on the first run of the day, and commits post stats to memory/social.md in jonathannen/jonathannen.com. Nothing outside 7am to 7pm where Jon is.',
+    what: 'Checks Hacker News, Lobsters, LinkedIn and X for replies to Jon and for posts worth engaging with, and drafts replies and comments, which he posts himself. Reports as one numbered list, with the drafts to copy in its thread. Announces each new jonathannen.com post or short on LinkedIn, X and Bluesky, gives the daily submission picks on the first run of the day, and commits post stats to memory/social.md in jonathannen/jonathannen.com. Nothing outside 7am to 7pm where Jon is.',
     where: 'JNN SOCIAL',
     whereUrl: 'https://jondev.slack.com/archives/C0CKEA9KW90',
   },
