@@ -12,6 +12,7 @@ import { Route as rootRouteImport } from './routes/__root'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as CodeRouteImport } from './routes/code'
 import { Route as McpRouteImport } from './routes/mcp'
+import { Route as SchedulesRouteImport } from './routes/schedules'
 import { Route as SettingsRouteImport } from './routes/settings'
 import { Route as WorkspacesNewRouteImport } from './routes/workspaces.new'
 
@@ -30,6 +31,11 @@ const McpRoute = McpRouteImport.update({
   path: '/mcp',
   getParentRoute: () => rootRouteImport,
 } as any)
+const SchedulesRoute = SchedulesRouteImport.update({
+  id: '/schedules',
+  path: '/schedules',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const SettingsRoute = SettingsRouteImport.update({
   id: '/settings',
   path: '/settings',
@@ -45,6 +51,7 @@ export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/code': typeof CodeRoute
   '/mcp': typeof McpRoute
+  '/schedules': typeof SchedulesRoute
   '/settings': typeof SettingsRoute
   '/workspaces/new': typeof WorkspacesNewRoute
 }
@@ -52,6 +59,7 @@ export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/code': typeof CodeRoute
   '/mcp': typeof McpRoute
+  '/schedules': typeof SchedulesRoute
   '/settings': typeof SettingsRoute
   '/workspaces/new': typeof WorkspacesNewRoute
 }
@@ -60,21 +68,31 @@ export interface FileRoutesById {
   '/': typeof IndexRoute
   '/code': typeof CodeRoute
   '/mcp': typeof McpRoute
+  '/schedules': typeof SchedulesRoute
   '/settings': typeof SettingsRoute
   '/workspaces/new': typeof WorkspacesNewRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
-  fullPaths: '/' | '/code' | '/mcp' | '/settings' | '/workspaces/new'
+  fullPaths:
+    '/' | '/code' | '/mcp' | '/schedules' | '/settings' | '/workspaces/new'
   fileRoutesByTo: FileRoutesByTo
-  to: '/' | '/code' | '/mcp' | '/settings' | '/workspaces/new'
-  id: '__root__' | '/' | '/code' | '/mcp' | '/settings' | '/workspaces/new'
+  to: '/' | '/code' | '/mcp' | '/schedules' | '/settings' | '/workspaces/new'
+  id:
+    | '__root__'
+    | '/'
+    | '/code'
+    | '/mcp'
+    | '/schedules'
+    | '/settings'
+    | '/workspaces/new'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
   CodeRoute: typeof CodeRoute
   McpRoute: typeof McpRoute
+  SchedulesRoute: typeof SchedulesRoute
   SettingsRoute: typeof SettingsRoute
   WorkspacesNewRoute: typeof WorkspacesNewRoute
 }
@@ -102,6 +120,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof McpRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/schedules': {
+      id: '/schedules'
+      path: '/schedules'
+      fullPath: '/schedules'
+      preLoaderRoute: typeof SchedulesRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/settings': {
       id: '/settings'
       path: '/settings'
@@ -123,6 +148,7 @@ const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   CodeRoute: CodeRoute,
   McpRoute: McpRoute,
+  SchedulesRoute: SchedulesRoute,
   SettingsRoute: SettingsRoute,
   WorkspacesNewRoute: WorkspacesNewRoute,
 }

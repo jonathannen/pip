@@ -4,7 +4,7 @@ Jon's personal bot: a website, an MCP server and a Slack bot on one Cloudflare W
 
 | Path | What | Auth |
 | --- | --- | --- |
-| `/`, `/code`, `/mcp`, `/settings`, `/workspaces/new` | React SPA (`src/web/`): notes, a prompt that launches a code channel, how to connect an MCP client, settings with the deployed build, setting pip up in another Slack workspace | Cloudflare Access |
+| `/`, `/code`, `/mcp`, `/schedules`, `/settings`, `/workspaces/new` | React SPA (`src/web/`): notes, a prompt that launches a code channel, how to connect an MCP client, the scheduled tasks (a list in `src/web/routes/schedules.tsx`), settings with the deployed build, setting pip up in another Slack workspace | Cloudflare Access |
 | `/api/*` | JSON API for the SPA (`src/worker/index.ts`) | Cloudflare Access |
 | `/mcp/<name>` | MCP servers (`src/worker/mcp/`) | Cloudflare Access (user or service token) |
 | `/auth/google` | One-time Google sign-in that connects Gmail for the draft tools (`src/worker/google.ts`) | Cloudflare Access |
